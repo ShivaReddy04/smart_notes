@@ -23,7 +23,9 @@ Why this file exists:
 from fastapi import APIRouter, Depends, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.models.user import User
 from app.repositories.note_image_repository import NoteImageRepository
 from app.repositories.note_repository import NoteRepository
 from app.schemas.note_image import NoteImageResponse
@@ -34,18 +36,23 @@ from app.services.note_image_service import NoteImageService
 router = APIRouter(prefix="/notes/{note_id}/images", tags=["Note images"])
 
 
-def get_note_image_service(db: Session = Depends(get_db)) -> NoteImageService:
-    """Assemble a request-scoped NoteImageService.
+def get_note_image_service(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> NoteImageService:
+    """Assemble a request-scoped, user-scoped NoteImageService.
 
-    FastAPI resolves `get_db` (a session for this request); we layer the two
-    repositories on top and inject the cached storage singleton (its media
-    directory is created once). Centralizing construction here keeps the
-    endpoints thin and lets tests override the dependency.
+    FastAPI resolves `get_db` (a session for this request) and
+    `get_current_user` (so every image route requires a valid login and 401s
+    without one); we layer the two repositories on top, inject the cached
+    storage singleton, and bind the service to the authenticated owner so image
+    operations are confined to the user's own notes.
     """
     return NoteImageService(
         NoteRepository(db),
         NoteImageRepository(db),
         get_image_storage_service(),
+        user_id=current_user.id,
     )
 
 

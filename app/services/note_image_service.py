@@ -41,25 +41,31 @@ class NoteImageService:
         note_repository: NoteRepository,
         image_repository: NoteImageRepository,
         storage: ImageStorageService,
+        user_id: int,
     ) -> None:
         """Inject collaborators:
           * `note_repository`  -> confirm the parent note exists.
           * `image_repository` -> persist/list/delete image ROWS.
           * `storage`          -> write/delete image BYTES on disk.
+          * `user_id`          -> the authenticated owner; the parent-note check
+            is scoped to it, so a user can only attach to / read images of their
+            OWN notes (Phase 6).
         """
         self._notes = note_repository
         self._images = image_repository
         self._storage = storage
+        self._user_id = user_id
 
     # --- Internal helper ---------------------------------------------
     def _ensure_note_exists(self, note_id: int) -> None:
-        """Raise NotFoundError (→ 404) if the parent note is missing.
+        """Raise NotFoundError (→ 404) if the note is missing OR not owned.
 
-        Images are meaningless without their note, so every operation starts
-        by confirming the note exists — the same 404 rule the note service
-        uses, applied at the image boundary.
+        Images are meaningless without their note, so every operation starts by
+        confirming the note exists AND belongs to the current user — another
+        user's note reads as 404, never revealing it. Same rule the note service
+        applies, enforced here at the image boundary.
         """
-        if self._notes.get_by_id(note_id) is None:
+        if self._notes.get_by_id(note_id, self._user_id) is None:
             raise NotFoundError("Note", note_id)
 
     # --- Use cases ----------------------------------------------------

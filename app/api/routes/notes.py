@@ -22,7 +22,9 @@ from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.ai.categorizer import get_categorizer
+from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.models.user import User
 from app.repositories.note_repository import NoteRepository
 from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
 from app.services.note_embedding_service import get_note_embedding_service
@@ -33,19 +35,24 @@ from app.services.note_service import NoteService
 router = APIRouter(prefix="/notes", tags=["Notes"])
 
 
-def get_note_service(db: Session = Depends(get_db)) -> NoteService:
-    """Assemble a request-scoped NoteService.
+def get_note_service(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> NoteService:
+    """Assemble a request-scoped, user-scoped NoteService.
 
-    FastAPI resolves `get_db` (yielding a session for this request), then we
-    layer the repository and service on top. The categorizer and the note
-    embedding service are cached singletons (their LLM client / embedding
-    client / vector store are reused across requests). Declaring this as a
+    FastAPI resolves `get_db` (a session for this request) and
+    `get_current_user` (authenticating the bearer token — so EVERY notes route
+    requires a valid login and 401s without one). We then layer the repository
+    and service on top, binding the service to the authenticated owner. The
+    categorizer and embedding service are cached singletons. Declaring this as a
     dependency keeps construction in one place and lets tests override it.
     """
     return NoteService(
         NoteRepository(db),
         get_categorizer(),
         get_note_embedding_service(),
+        user_id=current_user.id,
     )
 
 

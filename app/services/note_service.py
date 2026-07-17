@@ -37,6 +37,7 @@ class NoteService:
         repository: NoteRepository,
         categorizer: NoteCategorizer,
         note_embedding_service: NoteEmbeddingService,
+        user_id: int,
     ) -> None:
         """Inject collaborators so the service is decoupled from concrete
         implementations and testable with fakes:
@@ -45,10 +46,14 @@ class NoteService:
           * `note_embedding_service` -> best-effort sync of the note into the
             vector index. It never raises, so semantic-search indexing can
             never break a CRUD operation (Feature 7).
+          * `user_id`                -> the authenticated owner. Every read is
+            scoped to it and every created note is stamped with it, so one
+            account can never see or touch another's notes (Phase 6).
         """
         self._repository = repository
         self._categorizer = categorizer
         self._note_embedding_service = note_embedding_service
+        self._user_id = user_id
 
     # --- AI helpers ---------------------------------------------------
     @staticmethod
@@ -81,7 +86,7 @@ class NoteService:
         Centralizes the "exists?" check so the 404 rule is written once and
         reused by read, update, pin, and delete.
         """
-        note = self._repository.get_by_id(note_id)
+        note = self._repository.get_by_id(note_id, self._user_id)
         if note is None:
             raise NotFoundError("Note", note_id)
         return note
@@ -95,7 +100,7 @@ class NoteService:
         return the complete note. Server-owned fields (id, is_pinned,
         timestamps) are filled by the database.
         """
-        note = Note(**data.model_dump())
+        note = Note(**data.model_dump(), user_id=self._user_id)
         self._apply_analysis(note)
         created = self._repository.create(note)
         # Best-effort: index the persisted note (it now has id + timestamps) for
@@ -109,8 +114,8 @@ class NoteService:
         return self._get_or_404(note_id)
 
     def list_notes(self, skip: int = 0, limit: int = 100) -> list[Note]:
-        """Return a paginated list of notes (pinned first, then newest)."""
-        return self._repository.get_all(skip=skip, limit=limit)
+        """Return a paginated list of the owner's notes (pinned first, newest)."""
+        return self._repository.get_all(self._user_id, skip=skip, limit=limit)
 
     def update_note(self, note_id: int, data: NoteUpdate) -> Note:
         """Apply a partial update to an existing note.

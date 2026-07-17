@@ -53,25 +53,28 @@ class NoteRepository:
         return note
 
     # --- Read ---------------------------------------------------------
-    def get_by_id(self, note_id: int) -> Note | None:
-        """Return the note with this id, or None if it does not exist.
+    def get_by_id(self, note_id: int, user_id: int) -> Note | None:
+        """Return the note with this id IF it belongs to `user_id`, else None.
 
-        `Session.get` is the most direct primary-key lookup (it also checks
-        the identity map first). Returning None — not raising — keeps the
-        404 decision in the service.
+        Scoping the lookup by owner is what enforces isolation: another user's
+        note (or a non-existent id) both read as None here, so upstream it
+        becomes a 404 that never reveals whether the note exists. Returning
+        None — not raising — keeps the 404 decision in the service.
         """
-        return self._session.get(Note, note_id)
+        statement = select(Note).where(Note.id == note_id, Note.user_id == user_id)
+        return self._session.execute(statement).scalar_one_or_none()
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> list[Note]:
-        """Return a page of notes, pinned first then newest first.
+    def get_all(self, user_id: int, skip: int = 0, limit: int = 100) -> list[Note]:
+        """Return a page of the OWNER's notes, pinned first then newest first.
 
-        Ordering by `is_pinned` descending surfaces pinned notes at the
-        top; `created_at` descending shows the most recent first within
-        each group. `skip`/`limit` provide simple offset pagination for the
-        list endpoint.
+        The `user_id` filter scopes the list to one account. Ordering by
+        `is_pinned` descending surfaces pinned notes at the top; `created_at`
+        descending shows the most recent first within each group.
+        `skip`/`limit` provide simple offset pagination for the list endpoint.
         """
         statement = (
             select(Note)
+            .where(Note.user_id == user_id)
             .order_by(Note.is_pinned.desc(), Note.created_at.desc())
             .offset(skip)
             .limit(limit)
