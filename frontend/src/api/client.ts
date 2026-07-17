@@ -11,6 +11,9 @@
  */
 
 import type {
+  AuthCredentials,
+  AuthToken,
+  AuthUser,
   ChatRequest,
   ChatResponse,
   Note,
@@ -73,23 +76,60 @@ function queryString(
   return rendered ? `?${rendered}` : ''
 }
 
+/* ---- Auth token storage + 401 handling ----------------------------------- */
+
+/** localStorage key holding the JWT bearer token (null when logged out). */
+const TOKEN_KEY = 'ai-smart-notes-token'
+
+// Called whenever a request comes back 401 (token missing/expired/invalid), so
+// the auth provider can drop the session and show the login screen. Registered
+// once by the auth context; the client stays framework-agnostic.
+let unauthorizedHandler: (() => void) | null = null
+
+/** The stored bearer token, or null. */
+export function getAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+/** Persist (or clear, with null) the bearer token. */
+export function setAuthToken(token: string | null): void {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
+/** Register the callback invoked when any request is rejected with 401. */
+export function onUnauthorized(handler: () => void): void {
+  unauthorizedHandler = handler
+}
+
 /**
- * Core request helper. Sends JSON, and on failure extracts the backend's
- * `detail` message into an `ApiError`. Returns `undefined` for 204 responses
- * (e.g. DELETE) and the parsed JSON body otherwise.
+ * Core request helper. Attaches the bearer token, sends JSON, and on failure
+ * extracts the backend's `detail` message into an `ApiError`. A 401 also clears
+ * the token and notifies the auth provider (session expired/invalid). Returns
+ * `undefined` for 204 responses (e.g. DELETE) and the parsed JSON otherwise.
  */
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // For multipart uploads the body is a FormData: we must NOT set
   // 'Content-Type' ourselves, or we'd clobber the boundary the browser adds.
   // JSON requests keep the explicit content type as before.
   const isFormData = options.body instanceof FormData
+  const token = getAuthToken()
+  const authHeader: Record<string, string> = token
+    ? { Authorization: `Bearer ${token}` }
+    : {}
   const headers = isFormData
-    ? { ...options.headers }
-    : { 'Content-Type': 'application/json', ...options.headers }
+    ? { ...authHeader, ...options.headers }
+    : { 'Content-Type': 'application/json', ...authHeader, ...options.headers }
 
   const response = await fetch(`${BASE_URL}${path}`, { ...options, headers })
 
   if (!response.ok) {
+    // A 401 means the token is missing/expired/invalid: drop it and let the app
+    // fall back to the login screen. (Harmless if we were already logged out.)
+    if (response.status === 401) {
+      setAuthToken(null)
+      unauthorizedHandler?.()
+    }
     let detail = response.statusText
     try {
       const body = (await response.json()) as { detail?: unknown }
@@ -172,4 +212,23 @@ export const searchApi = {
 export const chatApi = {
   ask: (body: ChatRequest) =>
     request<ChatResponse>('/chat', { method: 'POST', body: JSON.stringify(body) }),
+}
+
+/* ---- Auth ---------------------------------------------------------------- */
+
+export const authApi = {
+  /** Create an account; returns a token (the caller stores it via setAuthToken). */
+  register: (data: AuthCredentials) =>
+    request<AuthToken>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  /** Exchange email + password for a token. */
+  login: (data: AuthCredentials) =>
+    request<AuthToken>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  /** The current user, resolved from the stored bearer token (401 if invalid). */
+  me: () => request<AuthUser>('/auth/me'),
 }

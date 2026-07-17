@@ -120,6 +120,27 @@ export interface TaskStatusUpdate {
   status: TaskStatus
 }
 
+/* ---- Auth (mirror app/schemas/user.py) ----------------------------------- */
+
+/** Request body for POST /auth/register and /auth/login. */
+export interface AuthCredentials {
+  email: string
+  password: string
+}
+
+/** The current user (UserResponse) — never carries the password hash. */
+export interface AuthUser {
+  id: number
+  email: string
+  created_at: string
+}
+
+/** Response of register/login (Token) — the JWT to send as a Bearer header. */
+export interface AuthToken {
+  access_token: string
+  token_type: string
+}
+
 /* ---- Semantic search (mirror app/ai/embedding_models.py: SearchResult) ---- */
 
 /** One ranked hit from GET /search. */

@@ -19,6 +19,7 @@ import { useState } from 'react'
 import {
   IconChat,
   IconClose,
+  IconLogOut,
   IconMenu,
   IconMoon,
   IconNote,
@@ -26,9 +27,12 @@ import {
   IconSparkles,
   IconSun,
   IconTask,
+  Spinner,
   cn,
 } from './components/ui'
+import { useAuth } from './lib/auth'
 import { useTheme } from './lib/theme'
+import AuthView from './views/AuthView'
 import ChatView from './views/ChatView'
 import NotesView from './views/NotesView'
 import SearchView from './views/SearchView'
@@ -70,6 +74,7 @@ const NAV = [
 type TabId = (typeof NAV)[number]['id']
 
 function App() {
+  const { status } = useAuth()
   const [activeTab, setActiveTab] = useState<TabId>('notes')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { theme, toggle } = useTheme()
@@ -80,6 +85,21 @@ function App() {
   function go(id: TabId) {
     setActiveTab(id)
     setDrawerOpen(false)
+  }
+
+  // Auth gate (hooks above always run, so this branch is order-safe):
+  //   loading -> brief spinner while /me restores a stored session
+  //   unauthenticated -> the login / sign-up screen
+  //   authenticated -> the workspace below
+  if (status === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <Spinner className="h-6 w-6 text-slate-400" />
+      </div>
+    )
+  }
+  if (status === 'unauthenticated') {
+    return <AuthView />
   }
 
   return (
@@ -176,6 +196,8 @@ function SidebarBody({
   onToggleTheme: () => void
   onClose?: () => void
 }) {
+  const { user, logout } = useAuth()
+
   return (
     <>
       {/* Brand */}
@@ -224,8 +246,20 @@ function SidebarBody({
         })}
       </nav>
 
-      {/* Footer: theme toggle */}
+      {/* Footer: signed-in user, theme toggle, logout */}
       <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+        <div className="mb-1 flex items-center gap-2 px-3 py-1.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-100 text-xs font-semibold text-accent-700 dark:bg-accent-500/15 dark:text-accent-300">
+            {user?.email?.[0]?.toUpperCase() ?? '?'}
+          </span>
+          <span
+            className="min-w-0 flex-1 truncate text-xs text-slate-500 dark:text-slate-400"
+            title={user?.email ?? undefined}
+          >
+            {user?.email ?? 'Account'}
+          </span>
+        </div>
+
         <button
           type="button"
           onClick={onToggleTheme}
@@ -237,6 +271,15 @@ function SidebarBody({
             <IconMoon className="h-[18px] w-[18px]" />
           )}
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
+
+        <button
+          type="button"
+          onClick={logout}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-slate-100"
+        >
+          <IconLogOut className="h-[18px] w-[18px]" />
+          Log out
         </button>
       </div>
     </>

@@ -144,6 +144,12 @@ export const IconMenu = (p: IconProps) => (
     <path d="M3 12h18M3 6h18M3 18h18" />
   </Svg>
 )
+export const IconLogOut = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <path d="M16 17l5-5-5-5M21 12H9" />
+  </Svg>
+)
 
 /* --------------------------------------------------------------------------
  * Spinner — inline loading indicator that inherits the current text color.
