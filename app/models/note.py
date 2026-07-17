@@ -25,17 +25,17 @@ Why this file exists:
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, String, Text, func
+from sqlalchemy import Boolean, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.mixins import TimestampMixin
 
-# Type-only import to annotate the `images` relationship without a runtime
-# circular import (note_image.py imports nothing from here at runtime; the
-# relationship is resolved by the "NoteImage" string).
+# Type-only imports to annotate relationships without a runtime circular import;
+# the mappers are resolved by the "NoteImage"/"User" string names.
 if TYPE_CHECKING:
     from app.models.note_image import NoteImage
+    from app.models.user import User
 
 
 class Note(TimestampMixin, Base):
@@ -55,6 +55,18 @@ class Note(TimestampMixin, Base):
     # sufficient for Phase 1; can be swapped for a UUID later if we ever
     # need non-sequential, non-guessable public identifiers.
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+
+    # --- Ownership (Phase 6) -----------------------------------------
+    # The user who owns this note. Indexed because every list/read is scoped by
+    # owner. ON DELETE CASCADE removes a user's notes when the user is deleted.
+    # Nullable so the column could be added to a table that already had rows
+    # (those legacy notes are backfilled to the first account on registration);
+    # every note created through the app sets it.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
     # --- Core fields --------------------------------------------------
     # A note must have a title. Bounded length lets Postgres use varchar
@@ -101,6 +113,10 @@ class Note(TimestampMixin, Base):
     )
 
     # --- Relationships -----------------------------------------------
+    # The owning user (the reverse of User.notes). Optional to mirror the
+    # nullable FK above.
+    owner: Mapped["User | None"] = relationship(back_populates="notes")
+
     # Attached images (Phase 5). One note owns many NoteImage rows.
     #   * cascade="all, delete-orphan": deleting a Note (via the ORM) deletes
     #     its image rows, and removing an image from this list deletes that row.

@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import chat, note_images, notes, search, tasks
+from app.api.routes import auth, chat, note_images, notes, search, tasks
 from app.core.config import get_settings
 from app.utils.exceptions import AppError
 
@@ -101,6 +101,8 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
 # Mount each resource router under the configured API version prefix, so
 # routes resolve to e.g. /api/v1/notes and /api/v1/tasks. The prefix is
 # defined once in settings.
+# Phase 6: authentication (register/login/me), resolving to /api/v1/auth/*.
+app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(notes.router, prefix=settings.api_v1_prefix)
 app.include_router(tasks.router, prefix=settings.api_v1_prefix)
 # Phase 3: semantic search over notes, resolving to /api/v1/search.

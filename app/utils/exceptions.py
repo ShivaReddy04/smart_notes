@@ -75,3 +75,24 @@ class BadRequestError(AppError):
     """
 
     status_code = 400
+
+
+class ConflictError(AppError):
+    """Raised when a request conflicts with existing state. Maps to HTTP 409.
+
+    Used by auth for a duplicate email on registration — the request is valid
+    but the account already exists.
+    """
+
+    status_code = 409
+
+
+class UnauthorizedError(AppError):
+    """Raised when authentication fails or is missing. Maps to HTTP 401.
+
+    Used for bad login credentials and for missing/invalid bearer tokens. The
+    message is deliberately generic ("Incorrect email or password.") so it never
+    reveals whether a given email is registered.
+    """
+
+    status_code = 401

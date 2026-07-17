@@ -114,6 +114,26 @@ class Settings(BaseSettings):
     # endpoint may override this per request).
     search_top_k: int = 5
 
+    # --- Authentication (Phase 6) ---
+    # Email+password accounts secured with JWT bearer tokens. The client stores
+    # the token and sends it as `Authorization: Bearer <token>`; the API verifies
+    # it on every protected route (see app/core/security.py + app/api/deps.py).
+
+    # Secret used to SIGN and verify JWTs. There is NO safe default — a shared or
+    # empty secret would let anyone forge tokens — so the app refuses to start
+    # until it is set (like database_url). Generate one with:
+    #   python -c "import secrets; print(secrets.token_urlsafe(48))"
+    jwt_secret_key: str
+
+    # Signing algorithm. HS256 (HMAC + the shared secret above) is the standard
+    # symmetric choice; no key pair to manage.
+    jwt_algorithm: str = "HS256"
+
+    # How long an access token stays valid, in minutes. Default 7 days — long
+    # enough that a demo user is not logged out mid-session, short enough to
+    # bound a leaked token. Lower it for stricter security.
+    access_token_expire_minutes: int = 60 * 24 * 7
+
     # --- Frontend / CORS (Phase 5) ---
     # Origins the browser SPA is served from and therefore allowed to call this
     # API cross-origin. A list so several origins can be permitted at once (e.g.

@@ -53,6 +53,11 @@ services:
       # Set after the web service gets its URL (see the steps).
       - key: CORS_ORIGINS
         sync: false
+      # JWT signing secret (Phase 6 auth). Generate a long random string:
+      #   python -c "import secrets; print(secrets.token_urlsafe(48))"
+      # Set it in the dashboard and NEVER commit it.
+      - key: JWT_SECRET_KEY
+        sync: false
 
       # --- S3-compatible image storage (Supabase) — secrets in dashboard. ---
       - key: S3_ENDPOINT_URL        # Supabase: https://<project_ref>.supabase.co/storage/v1/s3

@@ -37,6 +37,15 @@ langchain-openai>=0.2.0   # ChatOpenAI client; points at OpenRouter's base_url
 # vector service. See app/ai/embedding_service.py and app/vectordb/.
 pgvector>=0.3.0               # SQLAlchemy Vector type + distance operators
 
+# --- Authentication (Phase 6) ---
+# Email+password accounts with JWT bearer tokens. We use the low-level libs
+# directly instead of passlib (which warns on bcrypt 4+/5): `bcrypt` hashes and
+# verifies passwords; `PyJWT` signs and decodes the access tokens. See
+# app/core/security.py.
+bcrypt>=4.0.0                 # Password hashing (salted, adaptive)
+PyJWT>=2.8.0                  # Encode/decode signed JWT access tokens
+email-validator>=2.0.0        # Backs pydantic EmailStr (validates account emails)
+
 # --- Object storage (Phase 5 images) ---
 # Note-image bytes are stored in S3-compatible object storage (Supabase
 # Storage by default; also R2 / AWS S3 / MinIO) instead of local disk,

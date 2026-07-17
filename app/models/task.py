@@ -20,12 +20,18 @@ Why this file exists:
 
 import enum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.mixins import TimestampMixin
+
+# Type-only import so the `owner` relationship annotation resolves without a
+# runtime circular import; the mapper is wired by the "User" string name.
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class TaskStatus(str, enum.Enum):
@@ -56,6 +62,17 @@ class Task(TimestampMixin, Base):
 
     # --- Identity -----------------------------------------------------
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+
+    # --- Ownership (Phase 6) -----------------------------------------
+    # The user who owns this task. Indexed (every list/read is scoped by owner);
+    # ON DELETE CASCADE removes a user's tasks with the user. Nullable so the
+    # column can be added to a populated table (legacy rows are backfilled to the
+    # first account on registration); every task created via the app sets it.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
 
     # --- Core fields --------------------------------------------------
     # A task must have a title. Bounded length, enforced non-null at the
@@ -89,6 +106,11 @@ class Task(TimestampMixin, Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+    # --- Relationships -----------------------------------------------
+    # The owning user (the reverse of User.tasks). Optional to mirror the
+    # nullable FK above.
+    owner: Mapped["User | None"] = relationship(back_populates="tasks")
 
     # --- Timestamps ---------------------------------------------------
     # `created_at` and `updated_at` are provided by TimestampMixin.
