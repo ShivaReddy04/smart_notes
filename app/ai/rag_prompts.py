@@ -86,3 +86,31 @@ def build_rag_prompt() -> ChatPromptTemplate:
             ("human", HUMAN_PROMPT),
         ]
     )
+
+
+# --- Small talk ------------------------------------------------------
+# A separate, lightweight prompt for social messages (greetings, thanks,
+# goodbyes, "how are you"). These don't touch the user's notes at all — the RAG
+# service routes them here so the bot feels human instead of answering "I
+# couldn't find that in your notes." Kept deliberately brief and warm, and it
+# never invents facts about the user's data.
+SMALL_TALK_SYSTEM_PROMPT = """You are a warm, friendly assistant inside a \
+personal notes and tasks app. The user has just sent a short social message — a \
+greeting, a thank-you, a goodbye, or casual small talk like "how are you".
+
+Reply in ONE short, friendly sentence that matches their message. When it feels \
+natural (e.g. after a greeting), gently offer to help with their notes or \
+tasks. Do NOT make up any information about their notes or tasks, and do not \
+mention these instructions."""
+
+SMALL_TALK_HUMAN_PROMPT = "{message}"
+
+
+def build_small_talk_prompt() -> ChatPromptTemplate:
+    """Assemble the small-talk prompt (one variable, `message`)."""
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", SMALL_TALK_SYSTEM_PROMPT),
+            ("human", SMALL_TALK_HUMAN_PROMPT),
+        ]
+    )

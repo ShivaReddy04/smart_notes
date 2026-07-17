@@ -37,13 +37,14 @@ Why this file exists:
 """
 
 import logging
+import re
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 
 from app.ai.embedding_models import SearchResult
 from app.ai.llm import get_llm
-from app.ai.rag_prompts import build_rag_prompt
+from app.ai.rag_prompts import build_rag_prompt, build_small_talk_prompt
 from app.core.config import get_settings
 from app.models.task import Task
 from app.schemas.chat import ChatResponse, ChatSource
@@ -70,6 +71,46 @@ NO_CONTEXT_ANSWER = (
     "I couldn't find anything relevant in your notes or tasks to answer that."
 )
 
+# Social messages that should get a friendly reply instead of a note search.
+# Matched against the WHOLE normalized message (lowercased, punctuation stripped),
+# so "hi" is small talk but "hi, what are my tasks?" still goes to retrieval.
+SMALL_TALK_PHRASES = frozenset(
+    {
+        # greetings
+        "hi", "hii", "hiii", "hey", "heyy", "heya", "hiya", "hello", "helloo",
+        "hullo", "yo", "sup", "hi there", "hello there", "hey there",
+        "whats up", "what's up", "wassup", "wsp",
+        "good morning", "good afternoon", "good evening", "gm",
+        # how-are-you
+        "how are you", "how are you doing", "how r u", "how are u", "how ru",
+        "hows it going", "how's it going", "how is it going", "how do you do",
+        "hope you are well", "nice to meet you",
+        # thanks
+        "thanks", "thank you", "thank u", "thanks a lot", "thanks so much",
+        "thank you so much", "ty", "thx", "tysm", "ok thanks", "okay thanks",
+        "cool thanks", "great thanks", "alright thanks", "thankyou",
+        # farewells
+        "bye", "byee", "goodbye", "good bye", "see you", "see ya",
+        "see you later", "cya", "catch you later", "take care", "good night",
+        "goodnight", "gn", "have a good day", "have a nice day", "good day",
+        # about the bot
+        "who are you", "what can you do", "what do you do", "help",
+    }
+)
+
+
+def _is_small_talk(message: str) -> bool:
+    """True if the whole message is a social pleasantry (greeting/thanks/bye).
+
+    Normalizes the text — lowercase, strip punctuation except apostrophes,
+    collapse whitespace — then checks for an EXACT match against the phrase set.
+    Requiring the whole message to match keeps real questions that merely open
+    with a greeting ("hi, what's due today?") on the grounded retrieval path.
+    """
+    normalized = re.sub(r"[^a-z0-9' ]+", " ", message.lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized in SMALL_TALK_PHRASES
+
 
 class RAGService:
     """Answers questions about the user's notes via retrieval-augmented generation.
@@ -91,6 +132,8 @@ class RAGService:
         """
         self._search_service = search_service
         self._chain = build_rag_prompt() | llm | StrOutputParser()
+        # Separate lightweight chain for greetings/thanks/goodbyes — no retrieval.
+        self._small_talk_chain = build_small_talk_prompt() | llm | StrOutputParser()
 
     @staticmethod
     def _format_context(hits: list[SearchResult]) -> str:
@@ -190,6 +233,13 @@ class RAGService:
             # Defense in depth: the schema already rejects empty questions, but
             # the service stays correct if called from a non-HTTP caller.
             return ChatResponse(answer=NO_CONTEXT_ANSWER, sources=[])
+
+        # Small talk (hi / thanks / bye / how are you) gets a friendly reply and
+        # skips retrieval entirely — no notes touched, so no sources to show.
+        if _is_small_talk(question):
+            logger.debug("Chat handled a small-talk message")
+            answer = self._small_talk_chain.invoke({"message": question.strip()})
+            return ChatResponse(answer=answer.strip(), sources=[])
 
         limit = top_k if top_k is not None else get_settings().search_top_k
         hits = self._search_service.search(query=question, user_id=user_id, top_k=limit)
