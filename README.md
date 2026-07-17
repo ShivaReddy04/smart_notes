@@ -182,7 +182,7 @@ The AI, vector, and storage tunables (all overridable, never hardcoded):
 |----------|---------|---------|
 | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` | Model slug for categorization/chat |
 | `EMBEDDING_BASE_URL` | Gemini's OpenAI-compatible endpoint | Where embeddings are called |
-| `EMBEDDING_MODEL` | `text-embedding-004` | Hosted embedding model |
+| `EMBEDDING_MODEL` | `gemini-embedding-001` | Hosted embedding model |
 | `EMBEDDING_DIMENSIONS` | `768` | Vector width — **must match** the `note_embeddings` column |
 | `SEARCH_TOP_K` | `5` | Default number of search results |
 | `IMAGE_STORAGE_BACKEND` | `local` | `local` (disk) or `s3` (Supabase/R2/S3) |
@@ -191,7 +191,7 @@ The AI, vector, and storage tunables (all overridable, never hardcoded):
 | `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` / `S3_PUBLIC_BASE_URL` | — | S3 config (when backend is `s3`) |
 
 > **Vector dimensions:** `EMBEDDING_DIMENSIONS` must equal the `vector(N)` column
-> width created by migration `0004` (768 for Gemini `text-embedding-004`).
+> width created by migration `0004` (768; `gemini-embedding-001` truncated).
 > Switching to a model with a different width means resizing that column and
 > re-embedding existing notes.
 
@@ -455,7 +455,7 @@ note about `"study FastAPI and SQLAlchemy"`, ranked by how close the meanings ar
 ### How it works
 
 Notes are embedded by a **hosted embeddings API** (Google Gemini,
-`text-embedding-004`) and the resulting vectors are stored in **Postgres via
+`gemini-embedding-001`, truncated to 768 dims) and the resulting vectors are stored in **Postgres via
 `pgvector`** — the same database as the notes, so there is no separate vector
 service and no disk. PostgreSQL stays the single source of truth; the vector
 index is **best-effort** — if the embeddings API or the vector write fails, note

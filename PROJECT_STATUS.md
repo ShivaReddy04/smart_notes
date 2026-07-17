@@ -78,7 +78,7 @@ If the LLM fails: logged, falls back to `Other` / `Medium`, CRUD still succeeds.
 
 ## Phase 3 — Embeddings & semantic search ✅
 
-**Hosted embeddings** (Google **Gemini** `text-embedding-004`, called via
+**Hosted embeddings** (Google **Gemini** `gemini-embedding-001`, 768-dim, called via
 `langchain-openai`'s `OpenAIEmbeddings` pointed at Gemini's OpenAI-compatible
 endpoint) + **vectors stored in Postgres via `pgvector`** — same database as the
 notes, no separate vector service and no disk. Postgres stays the source of

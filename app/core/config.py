@@ -93,15 +93,17 @@ class Settings(BaseSettings):
     # to point at OpenAI ("https://api.openai.com/v1") or any compatible host.
     embedding_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
-    # The embedding model slug. Defaulted to Gemini's text-embedding-004.
-    # Changing it may change the vector dimensionality (see below), which
-    # requires re-embedding existing notes.
-    embedding_model: str = "text-embedding-004"
+    # The embedding model slug. Defaulted to Gemini's gemini-embedding-001 (its
+    # current GA embedding model; text-embedding-004 is not served on the OpenAI
+    # -compatible endpoint). Changing it may change the vector dimensionality
+    # (see below), which requires re-embedding existing notes.
+    embedding_model: str = "gemini-embedding-001"
 
-    # Dimensionality of the vectors this model emits. MUST match the pgvector
-    # column width in the note_embeddings table (migration 0004). Gemini's
-    # text-embedding-004 emits 768; OpenAI text-embedding-3-small emits 1536.
-    # Changing this requires a migration to resize the column and a re-embed.
+    # Dimensionality of the vectors to request. MUST match the pgvector column
+    # width in the note_embeddings table (migration 0004). gemini-embedding-001
+    # emits 3072 by default but supports Matryoshka truncation to 768/1536,
+    # requested via the `dimensions` param in embedding_service. Changing this
+    # requires a migration to resize the column and a re-embed.
     embedding_dimensions: int = 768
 
     # Bounded per-call timeout (seconds) so a slow/hung embeddings API cannot

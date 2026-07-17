@@ -35,7 +35,7 @@ from app.core.database import Base
 
 # The vector width is fixed at class-definition time from config. It MUST match
 # the pgvector column created in migration 0004; both derive from the embedding
-# model's output dimensionality (Gemini text-embedding-004 = 768).
+# requested embedding width (gemini-embedding-001 truncated to 768).
 _EMBEDDING_DIMS = get_settings().embedding_dimensions
 
 

@@ -17,7 +17,7 @@ Why this file exists:
         search by cosine distance stays fast as the table grows.
 
     Dimensionality note:
-        768 matches Settings.embedding_dimensions (Gemini text-embedding-004).
+        768 matches Settings.embedding_dimensions (gemini-embedding-001, 768).
         If you switch to a model with a different width, you must resize this
         column and re-embed every note.
 

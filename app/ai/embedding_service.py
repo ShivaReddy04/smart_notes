@@ -58,6 +58,11 @@ def _load_client() -> OpenAIEmbeddings:
         model=settings.embedding_model,
         api_key=settings.embedding_api_key,
         base_url=settings.embedding_base_url,
+        # Request exactly `embedding_dimensions` values. gemini-embedding-001
+        # emits 3072 by default but supports Matryoshka truncation to 768/1536;
+        # this keeps the vector matching the pgvector column width. (Cosine
+        # search normalizes internally, so truncated vectors are fine.)
+        dimensions=settings.embedding_dimensions,
         timeout=settings.embedding_timeout,
         check_embedding_ctx_length=False,
     )
