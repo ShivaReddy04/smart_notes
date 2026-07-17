@@ -1,0 +1,43 @@
+# .gitignore
+#
+# Keeps local-only and generated artifacts out of version control. Notably
+# we DO commit `.env.example` (the template) and `alembic/versions/*` (the
+# migration history) — only the real `.env` and transient files are ignored.
+
+# --- Secrets / local config ------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Python bytecode & caches ----------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# --- Vector store (generated data, Phase 3) --------------------------
+chroma_data/
+*.chroma
+
+# --- Uploaded media (generated runtime data, Phase 5) ----------------
+media/
+
+# --- Virtual environments --------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# --- Build / packaging artifacts -------------------------------------
+*.egg-info/
+build/
+dist/
+
+# --- Editor / OS noise -----------------------------------------------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

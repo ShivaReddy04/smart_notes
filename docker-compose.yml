@@ -1,0 +1,53 @@
+# docker-compose.yml
+#
+# Why this file exists:
+#   The single command that runs the whole stack: the FastAPI backend (`api`)
+#   and the nginx-served React frontend (`web`). PostgreSQL is NOT a service
+#   here — the app uses Neon (remote), configured via DATABASE_URL in .env.
+#
+#   Run it:   docker compose up --build
+#   Open it:  http://localhost:8080     (web -> proxies /api and /media to api)
+#   API docs: http://localhost:8000/docs
+
+services:
+  # --- Backend API ---------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # All configuration/secrets come from .env (DATABASE_URL, OPENROUTER_API_KEY,
+    # etc.), matching how the app reads settings locally. Never baked into the image.
+    env_file:
+      - .env
+    # Published so /docs and the API are reachable directly for debugging. The
+    # web container reaches it internally as http://api:8000 regardless.
+    ports:
+      - "8000:8000"
+    # Named volumes persist runtime data across container rebuilds:
+    #   * chroma_data -> the local vector index (Phase 3 semantic search).
+    #   * media       -> uploaded note images (Phase 5).
+    # Paths match the app's defaults (relative to WORKDIR /app).
+    volumes:
+      - chroma_data:/app/chroma_data
+      - media:/app/media
+    restart: unless-stopped
+
+  # --- Frontend (nginx serving the built SPA + reverse proxy) --------
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    # Wait until the API reports healthy (its Dockerfile HEALTHCHECK) before
+    # starting, so the first proxied request doesn't hit a cold backend.
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+# Docker-managed named volumes (survive `docker compose down`; removed only
+# with `docker compose down -v`).
+volumes:
+  chroma_data:
+  media:

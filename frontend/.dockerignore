@@ -1,0 +1,13 @@
+# frontend/.dockerignore (web build context)
+#
+# Exclude anything reinstalled or regenerated inside the image, so the build
+# context stays small and no local state leaks in. node_modules is restored by
+# `npm ci`; dist is produced by `npm run build`.
+node_modules/
+dist/
+.env
+.env.*
+*.log
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,90 @@
+# render.yaml — Render Blueprint (Infrastructure as Code)
+#
+# Why this file exists:
+#   Describes the WHOLE deployment to Render in one committed file so the stack
+#   is reproducible: create it once from this Blueprint and every later push
+#   redeploys with the same config. Two services are defined:
+#
+#     * api  -> the FastAPI backend, built from the existing Dockerfile.
+#     * web  -> the React SPA, built with Vite and served as a static site.
+#
+#   PostgreSQL is NOT defined here — the app uses Neon (remote), supplied via
+#   DATABASE_URL. Keep it that way, or swap in a Render `databases:` block later.
+#
+#   How to use it: see the step-by-step in the chat. In short — push this file,
+#   then in Render: New + -> Blueprint -> pick this repo. Render reads this file
+#   and provisions both services.
+
+services:
+  # --- Backend API ----------------------------------------------------
+  - type: web
+    name: ai-smart-notes-api
+    runtime: docker              # Build from ./Dockerfile (handles CPU-only torch).
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: oregon               # Pick the region nearest you / nearest Neon.
+    # Standard = 2 GB RAM. REQUIRED: torch + the sentence-transformers model
+    # will OOM-crash on the 512 MB free/starter tiers. Do not drop below this.
+    plan: standard
+    healthCheckPath: /health     # Matches the /health route in app/main.py.
+    autoDeploy: true             # Redeploy automatically on every push to the branch.
+
+    # Persistent disk. Render allows ONE disk per service, mounted at ONE path,
+    # so both stores that need to survive redeploys live under /app/data:
+    #   * the Chroma vector index (semantic search)
+    #   * uploaded note images
+    # The env vars below point the app at these subdirectories.
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 5
+
+    envVars:
+      # --- Secrets: set these in the Render dashboard, never commit them. ---
+      # sync:false tells Render "this value is managed in the UI" so the
+      # Blueprint does not overwrite it and it stays out of git.
+      - key: DATABASE_URL          # Neon URL: postgresql+psycopg2://...  (Render env has no local .env)
+        sync: false
+      - key: OPENROUTER_API_KEY    # From https://openrouter.ai/keys
+        sync: false
+      # Browser origins allowed to call this API. MUST be a JSON array and MUST
+      # include the deployed frontend URL, e.g. ["https://ai-smart-notes-web.onrender.com"].
+      # Set after the web service gets its URL (see the steps).
+      - key: CORS_ORIGINS
+        sync: false
+
+      # --- Non-secret config (safe to keep in the Blueprint). ---
+      # Point the disk-backed stores at the mounted volume so they persist.
+      - key: CHROMA_PERSIST_PATH
+        value: /app/data/chroma_data
+      - key: MEDIA_DIR
+        value: /app/data/media
+      - key: EMBEDDING_DEVICE      # CPU build of torch is installed; keep this cpu.
+        value: cpu
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
+      - key: DEBUG
+        value: "false"
+
+  # --- Frontend SPA (Vite static build) -------------------------------
+  - type: web
+    name: ai-smart-notes-web
+    runtime: static              # No server: Render serves the built files on its CDN.
+    rootDir: frontend            # Run the build inside the frontend/ package.
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist    # Vite outputs here (relative to rootDir).
+    autoDeploy: true
+
+    envVars:
+      # Injected at BUILD time by Vite (see frontend/src/api/client.ts). Must be
+      # the API service's public URL WITH the /api/v1 suffix. Set it once the api
+      # service has a URL, e.g. https://ai-smart-notes-api.onrender.com/api/v1
+      - key: VITE_API_BASE_URL
+        sync: false
+
+    # SPA fallback: any path that is not a real file returns index.html so the
+    # client-side router can resolve it (replaces the nginx try_files rule).
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -1,0 +1,18 @@
+/* index.css — global stylesheet for the SPA.
+ *
+ * Tailwind v4 is enabled with a single import (no @tailwind directives and no
+ * tailwind.config.js needed for defaults). Utility classes used throughout the
+ * components are generated on demand by the @tailwindcss/vite plugin.
+ *
+ * We keep global CSS deliberately tiny: a base background, text color, and
+ * font smoothing. Everything else is expressed as Tailwind utilities directly
+ * in the components. */
+@import 'tailwindcss';
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}

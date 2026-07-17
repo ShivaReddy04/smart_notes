@@ -1,0 +1,36 @@
+# .dockerignore (API build context)
+#
+# Why this file exists:
+#   Everything NOT excluded here is sent to the Docker daemon as the build
+#   context and can end up in the image. We exclude anything that is large,
+#   secret, machine-specific, or regenerated inside the container, so builds
+#   are fast, reproducible, and never bake in a developer's local state.
+
+# --- Python virtualenv & caches (recreated by pip inside the image) ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Secrets & local env (injected at runtime via compose env_file) ---
+.env
+
+# --- Runtime data (persisted via mounted volumes, never in the image) ---
+chroma_data/
+media/
+
+# --- Frontend (built by its OWN Dockerfile, not the API context) ---
+frontend/
+
+# --- VCS, IDE, OS noise ---
+.git/
+.gitignore
+.idea/
+.vscode/
+*.md
+Thumbs.db
+.DS_Store
