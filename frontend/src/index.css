@@ -1,18 +1,103 @@
-/* index.css — global stylesheet for the SPA.
+/* index.css — design-system foundation for the SPA.
  *
- * Tailwind v4 is enabled with a single import (no @tailwind directives and no
- * tailwind.config.js needed for defaults). Utility classes used throughout the
- * components are generated on demand by the @tailwindcss/vite plugin.
+ * Tailwind v4 is configured CSS-first (no tailwind.config.js). This file owns
+ * three things every component then builds on:
  *
- * We keep global CSS deliberately tiny: a base background, text color, and
- * font smoothing. Everything else is expressed as Tailwind utilities directly
- * in the components. */
+ *   1. Dark mode by CLASS. By default Tailwind's `dark:` variant follows the OS
+ *      setting only. We redefine it to key off a `.dark` class on <html> so the
+ *      in-app theme toggle (see lib/theme.ts) can override the OS — while still
+ *      defaulting to the OS preference on first load. Every `dark:` utility in
+ *      the components depends on this one line.
+ *
+ *   2. Design tokens (@theme) — the app font and a single brand "accent" color
+ *      scale. Exposing them here means a rebrand is a token change, not a
+ *      find-replace across components, and `accent-600` etc. become utilities.
+ *
+ *   3. Base layer — page background/foreground for both themes, smooth theme
+ *      transitions, tuned selection + scrollbar. Kept minimal; component look
+ *      lives in the shared UI primitives (components/ui.tsx), not here.
+ */
 @import 'tailwindcss';
 
-:root {
-  color-scheme: light dark;
+/* 1. Class-based dark mode: `dark:` applies when <html> (or any ancestor) has
+ *    the `.dark` class, instead of the default prefers-color-scheme media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 2. Design tokens. In v4 these become real utilities/vars: `--font-sans` sets
+ *    the default sans stack; `--color-accent-*` yields `bg-accent-600`,
+ *    `text-accent-500`, `ring-accent-500/40`, etc. The accent is an indigo-violet
+ *    ramp — distinctive but calm, and legible on both light and dark surfaces. */
+@theme {
+  --font-sans:
+    'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --color-accent-50: #eef2ff;
+  --color-accent-100: #e0e7ff;
+  --color-accent-200: #c7d2fe;
+  --color-accent-300: #a5b4fc;
+  --color-accent-400: #818cf8;
+  --color-accent-500: #6366f1;
+  --color-accent-600: #4f46e5;
+  --color-accent-700: #4338ca;
+  --color-accent-800: #3730a3;
+  --color-accent-900: #312e81;
 }
 
-body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+/* 3. Base layer. */
+@layer base {
+  html {
+    /* Native form controls / scrollbars pick sensible colors per theme. The
+     * class on <html> drives our own `dark:` utilities; this hints the UA too. */
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply antialiased;
+    min-height: 100vh;
+    /* Neutral canvas per theme (slate ramp is Tailwind's default). Component
+     * surfaces sit on top of this via the UI primitives. */
+    background-color: var(--color-slate-50);
+    color: var(--color-slate-900);
+    /* A gentle cross-fade when the theme flips, so the toggle feels intentional
+     * rather than a hard flash. Only colors transition — never layout. */
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
+  }
+  html.dark body {
+    background-color: var(--color-slate-950);
+    color: var(--color-slate-100);
+  }
+
+  /* Text selection uses the brand accent for a cohesive, polished feel. */
+  ::selection {
+    background-color: var(--color-accent-500);
+    color: #fff;
+  }
+
+  /* Slim, theme-aware scrollbars (WebKit/Blink). Firefox falls back to
+   * color-scheme above, which is already correct. */
+  * {
+    scrollbar-width: thin;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: var(--color-slate-300);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  html.dark *::-webkit-scrollbar-thumb {
+    background-color: var(--color-slate-700);
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
 }
