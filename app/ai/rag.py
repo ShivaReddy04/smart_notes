@@ -165,6 +165,7 @@ class RAGService:
     def ask(
         self,
         question: str,
+        user_id: int,
         top_k: int | None = None,
         tasks: list[Task] | None = None,
     ) -> ChatResponse:
@@ -178,11 +179,12 @@ class RAGService:
             4. Otherwise format the notes + tasks into context, invoke the chain,
                and return the generated answer plus the note sources it used.
 
-        `top_k` falls back to the configured `search_top_k` when omitted. `tasks`
-        is the user's task list, supplied by the route (the RAG service has no DB
-        session of its own); when omitted the chat behaves exactly as before.
-        Any failure during generation propagates (a 500), never a fabricated
-        answer.
+        `user_id` scopes retrieval to the asker's OWN notes (the RAG service is a
+        shared singleton, so ownership is a per-call argument, not constructor
+        state). `top_k` falls back to the configured `search_top_k` when omitted.
+        `tasks` is the user's task list, supplied by the route (already scoped by
+        the caller). Any failure during generation propagates (a 500), never a
+        fabricated answer.
         """
         if not question or not question.strip():
             # Defense in depth: the schema already rejects empty questions, but
@@ -190,7 +192,7 @@ class RAGService:
             return ChatResponse(answer=NO_CONTEXT_ANSWER, sources=[])
 
         limit = top_k if top_k is not None else get_settings().search_top_k
-        hits = self._search_service.search(query=question, top_k=limit)
+        hits = self._search_service.search(query=question, user_id=user_id, top_k=limit)
 
         tasks = tasks or []
         if not hits and not tasks:

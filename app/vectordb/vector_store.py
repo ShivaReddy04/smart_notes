@@ -123,19 +123,26 @@ class VectorStore:
             session.execute(sql_delete(NoteEmbedding).where(NoteEmbedding.note_id == note_id))
             session.commit()
 
-    def query(self, embedding: list[float], top_k: int) -> list[VectorQueryHit]:
-        """Find the `top_k` nearest note vectors to a query embedding.
+    def query(
+        self, embedding: list[float], top_k: int, user_id: int
+    ) -> list[VectorQueryHit]:
+        """Find the `top_k` nearest note vectors to a query embedding, scoped to
+        the OWNER.
 
         Orders by pgvector's cosine distance (`<=>`) and joins `notes` so each
-        hit carries the note's live metadata and text in one round-trip. Because
-        the metadata comes from the notes table (not a copy frozen at index
-        time), search results always reflect the note's current title/category.
+        hit carries the note's live metadata and text in one round-trip. The
+        `user_id` filter on that join is what confines search to the requesting
+        user's own notes — a vector can only surface if its note is owned by
+        them (Phase 6). Because the metadata comes from the notes table (not a
+        copy frozen at index time), results always reflect the note's current
+        title/category.
         """
-        logger.debug("Querying %d nearest vectors", top_k)
+        logger.debug("Querying %d nearest vectors for user %s", top_k, user_id)
         distance = NoteEmbedding.embedding.cosine_distance(embedding).label("distance")
         stmt = (
             select(Note, distance)
             .join(NoteEmbedding, NoteEmbedding.note_id == Note.id)
+            .where(Note.user_id == user_id)
             .order_by(distance)
             .limit(top_k)
         )

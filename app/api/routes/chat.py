@@ -29,7 +29,9 @@ Why this file exists:
 from fastapi import APIRouter, Depends
 
 from app.ai.rag import RAGService, get_rag_service
+from app.api.deps import get_current_user
 from app.api.routes.tasks import get_task_service
+from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.task_service import TaskService
 
@@ -52,6 +54,7 @@ def chat(
     payload: ChatRequest,
     service: RAGService = Depends(get_rag_service),
     task_service: TaskService = Depends(get_task_service),
+    current_user: User = Depends(get_current_user),
 ) -> ChatResponse:
     """Answer a natural-language question using the user's notes AND tasks.
 
@@ -63,4 +66,9 @@ def chat(
     task exists, the answer says so and `sources` is empty.
     """
     tasks = task_service.list_tasks(limit=MAX_TASKS_FOR_CHAT)
-    return service.ask(question=payload.question, top_k=payload.top_k, tasks=tasks)
+    return service.ask(
+        question=payload.question,
+        user_id=current_user.id,
+        top_k=payload.top_k,
+        tasks=tasks,
+    )

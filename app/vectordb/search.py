@@ -60,12 +60,15 @@ class SearchService:
         self._embedding_service = embedding_service
         self._vector_store = vector_store
 
-    def search(self, query: str, top_k: int | None = None) -> list[SearchResult]:
-        """Return up to `top_k` notes most similar in meaning to `query`.
+    def search(
+        self, query: str, user_id: int, top_k: int | None = None
+    ) -> list[SearchResult]:
+        """Return up to `top_k` of the OWNER's notes most similar to `query`.
 
-        Steps: guard empty input, embed the query, retrieve nearest vectors,
-        convert each distance to a similarity percentage, and sort high→low.
-        `top_k` falls back to the configured default when not supplied.
+        Steps: guard empty input, embed the query, retrieve nearest vectors
+        SCOPED to `user_id`, convert each distance to a similarity percentage,
+        and sort high→low. `top_k` falls back to the configured default when not
+        supplied.
         """
         if not query or not query.strip():
             # Nothing to search for — skip the embedding + vector-store round-trip.
@@ -76,7 +79,7 @@ class SearchService:
         logger.debug("Searching (top_k=%d) for query of %d chars", limit, len(query))
 
         embedding = self._embedding_service.embed_query(query)
-        hits = self._vector_store.query(embedding, limit)
+        hits = self._vector_store.query(embedding, limit, user_id)
 
         results = [
             SearchResult.from_hit(

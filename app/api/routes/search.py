@@ -25,6 +25,8 @@ Why this file exists:
 from fastapi import APIRouter, Depends, Query
 
 from app.ai.embedding_models import SearchResult
+from app.api.deps import get_current_user
+from app.models.user import User
 from app.vectordb.search import SearchService, get_search_service
 
 # `prefix` groups the route under /search; `tags` groups it in the docs. The
@@ -50,12 +52,13 @@ def search_notes(
         description="Max results to return. Defaults to the configured search_top_k.",
     ),
     service: SearchService = Depends(get_search_service),
+    current_user: User = Depends(get_current_user),
 ) -> list[SearchResult]:
-    """Return notes most similar in meaning to `query`, ranked high→low.
+    """Return the user's notes most similar in meaning to `query`, ranked high→low.
 
-    `query` is required and must be non-empty (an empty query is a 422 at the
-    boundary). When `top_k` is omitted the service applies the configured
-    default. Each result carries the note's metadata, its content, and a 0-100
-    similarity score.
+    Requires a valid token (401 otherwise) and searches ONLY the current user's
+    notes. `query` is required and non-empty (empty is a 422 at the boundary).
+    When `top_k` is omitted the service applies the configured default. Each
+    result carries the note's metadata, its content, and a 0-100 similarity score.
     """
-    return service.search(query=query, top_k=top_k)
+    return service.search(query=query, user_id=current_user.id, top_k=top_k)
