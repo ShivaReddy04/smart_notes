@@ -12,9 +12,9 @@ Why this file exists:
         free and safe to import anywhere.
 
     Two models live here:
-        * VectorMetadata — the metadata attached to each stored vector
-          (Feature 2), shaped to satisfy Chroma's primitive-only metadata
-          rule (str / int / float / bool — so timestamps are ISO strings).
+        * VectorMetadata — the note fields carried alongside a search hit
+          (Feature 2). Timestamps are ISO-8601 strings so the shape is a clean,
+          JSON-friendly value the search API can pass straight through.
         * SearchResult — one ranked hit returned by /search (Feature 4),
           carrying the full metadata plus the note content and a
           similarity_score percentage.
@@ -26,36 +26,19 @@ from pydantic import BaseModel, Field
 
 
 class VectorMetadata(BaseModel):
-    """Metadata stored alongside a note's vector in ChromaDB.
+    """The note fields carried by a single vector-search hit.
 
-    Chroma metadata values must be primitives (str/int/float/bool), so the
-    timestamps are kept as ISO-8601 strings rather than datetimes. The
-    note-aware construction of this object (from a Note ORM instance) lives
-    in note_embedding_service, NOT here, to keep this module pure.
+    Timestamps are kept as ISO-8601 strings rather than datetimes, giving a
+    flat, JSON-friendly shape. vector_store.query builds this from a JOIN to the
+    `notes` table, so the values always reflect the note's current state.
     """
 
     note_id: int = Field(description="Primary key of the note in PostgreSQL.")
-    title: str = Field(description="Note title at index time.")
-    category: str = Field(description="AI-assigned category at index time.")
-    priority: str = Field(description="AI-assigned priority at index time.")
+    title: str = Field(description="Note title.")
+    category: str = Field(description="AI-assigned category.")
+    priority: str = Field(description="AI-assigned priority.")
     created_at: str = Field(description="Note creation timestamp (ISO-8601).")
     updated_at: str = Field(description="Note last-update timestamp (ISO-8601).")
-
-    def to_chroma(self) -> dict[str, str | int]:
-        """Serialize to a Chroma-safe metadata dict (primitives only).
-
-        `model_dump()` yields note_id as int and the rest as str — all
-        accepted by Chroma. Centralizing this here means the
-        primitives-only constraint is handled in exactly one place.
-        """
-        return self.model_dump()
-
-    @classmethod
-    def from_chroma(cls, raw: dict[str, object]) -> VectorMetadata:
-        """Rebuild a typed VectorMetadata from a raw Chroma metadata dict
-        returned by a query. Pydantic coerces the primitive values back
-        into the declared field types."""
-        return cls.model_validate(raw)
 
 
 class SearchResult(BaseModel):
@@ -83,7 +66,7 @@ class SearchResult(BaseModel):
         content: str | None,
         similarity_score: int,
     ) -> SearchResult:
-        """Assemble a SearchResult from a single Chroma hit.
+        """Assemble a SearchResult from a single vector-store hit.
 
         `metadata` supplies the note fields, `content` is the stored
         document text, and `similarity_score` is the converted percentage.

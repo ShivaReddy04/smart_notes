@@ -154,7 +154,7 @@ class RAGService:
 
 
 # Module-level singleton, populated lazily so importing this module never
-# constructs the embedding model, the Chroma client, or the LLM.
+# constructs the embedding client, the vector store, or the LLM.
 _rag_service: RAGService | None = None
 
 

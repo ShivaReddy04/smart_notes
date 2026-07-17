@@ -1,6 +1,6 @@
 # AI Smart Notes — Project Status & Roadmap
 
-_Last updated: 2026-07-14_ · Phases 1–4 complete; Phase 5 (frontend/voice/deploy) next.
+_Last updated: 2026-07-17_ · Phases 1–5 complete; reworked to deploy on Render's **free tier** (hosted Gemini embeddings + Postgres pgvector + Cloudflare R2, no torch, no disk).
 
 A single-page map of **what is built** and **what is planned**, across all five
 phases. Legend: ✅ done · 🔨 in progress · ⬜ planned.
@@ -13,22 +13,23 @@ phases. Legend: ✅ done · 🔨 in progress · ⬜ planned.
 |-------|-------|--------|
 | **1** | Notes & Tasks CRUD (FastAPI + PostgreSQL) | ✅ Complete |
 | **2** | AI categorization + priority detection (OpenRouter) | ✅ Complete |
-| **3** | Embeddings + semantic search (sentence-transformers + ChromaDB) | ✅ Complete |
+| **3** | Embeddings + semantic search (**Gemini embeddings + Postgres pgvector**) | ✅ Complete |
 | **4** | Chat with notes (RAG pipeline) | ✅ Complete |
-| **5** | React frontend, image attachments, Docker deployment | 🔵 In progress |
+| **5** | React frontend, image attachments (**Cloudflare R2**), **Render free-tier deploy** | ✅ Complete |
 
 ---
 
 ## What the app does (and will do)
 
-- **Now:** Create/read/update/delete notes and tasks. Every note is
+- **CRUD:** Create/read/update/delete notes and tasks. Every note is
   automatically tagged with a **category** (Work, Coding, Health, …) and a
   **priority** (High/Medium/Low) by an LLM via OpenRouter.
-- **Being added (Phase 3):** Search notes by **meaning**, not keywords — e.g.
-  searching "learn backend" finds a note about "study FastAPI and SQLAlchemy",
-  ranked by a similarity percentage.
-- **Later:** Ask questions and chat with your notes (RAG), then a web UI with
-  voice input, and production deployment.
+- **Semantic search:** Find notes by **meaning**, not keywords — e.g. searching
+  "learn backend" finds a note about "study FastAPI and SQLAlchemy", ranked by a
+  similarity percentage (Gemini embeddings + pgvector).
+- **Chat:** Ask questions and get answers grounded only in your notes (RAG).
+- **Web UI + images:** A React SPA (Notes/Tasks/Search/Chat) with image
+  attachments, deployable free on Render.
 
 ---
 
@@ -77,49 +78,51 @@ If the LLM fails: logged, falls back to `Other` / `Medium`, CRUD still succeeds.
 
 ## Phase 3 — Embeddings & semantic search ✅
 
-Local embeddings (**sentence-transformers**, `all-MiniLM-L6-v2`) + local vector DB
-(**ChromaDB**, persisted to disk). Vectors live in Chroma, **never** in Postgres.
-Postgres stays the source of truth; the vector index is best-effort, so if Chroma
+**Hosted embeddings** (Google **Gemini** `text-embedding-004`, called via
+`langchain-openai`'s `OpenAIEmbeddings` pointed at Gemini's OpenAI-compatible
+endpoint) + **vectors stored in Postgres via `pgvector`** — same database as the
+notes, no separate vector service and no disk. Postgres stays the source of
+truth; the vector index is best-effort, so if the embeddings API or vector write
 is down, CRUD is unaffected.
+
+> **Originally** built with local sentence-transformers + ChromaDB-on-disk. That
+> needed ~2 GB RAM (torch) and a persistent disk, neither of which fits a free
+> tier — so Phase 3 was reworked to the hosted-Gemini + pgvector design above
+> (2026-07-17). `chroma_client.py` was deleted.
 
 ### Build order & status
 
 | # | File | Purpose | Status |
 |---|------|---------|--------|
-| 1 | `requirements.txt` | + `sentence-transformers`, `chromadb` | ✅ |
-| 2 | `app/core/config.py` | + embedding/Chroma settings (`.env`, `.env.example`) | ✅ |
+| 1 | `requirements.txt` | − `sentence-transformers`/`chromadb`, + `pgvector` | ✅ |
+| 2 | `app/core/config.py` | Gemini embedding + dims settings (`.env`, `.env.example`) | ✅ |
 | 3 | `app/ai/embedding_models.py` | DTOs: `VectorMetadata`, `SearchResult` | ✅ |
-| 4 | `app/ai/embedding_service.py` | sentence-transformers wrapper (text → vector) | ✅ |
-| 5 | `app/vectordb/chroma_client.py` | Persistent Chroma client + collection (cosine) | ✅ |
-| 6 | `app/vectordb/vector_store.py` | `upsert` / `delete` / `query` on the collection | ✅ |
-| 7 | `app/vectordb/search.py` | Query → embed → search → ranked `SearchResult`s | ✅ |
-| 8 | `app/services/note_embedding_service.py` | Write-side bridge; never raises (Feature 7) | ✅ |
-| 9 | `app/services/note_service.py` | Hook sync into create/update/delete | ✅ |
-| 10 | `app/api/routes/search.py` | `GET /search?query=...` | ✅ |
-| 11 | `app/main.py` | Register the search router | ✅ |
-| 12 | `README.md` | Phase 3 docs, diagrams, examples, scaling notes | ✅ |
+| 4 | `app/ai/embedding_service.py` | Hosted embeddings client (text → vector) | ✅ |
+| 5 | `app/models/note_embedding.py` | `NoteEmbedding` ORM: note_id + `Vector(768)` | ✅ |
+| 6 | `alembic/…/0004_add_note_embeddings.py` | `CREATE EXTENSION vector` + table + HNSW index | ✅ |
+| 7 | `app/vectordb/vector_store.py` | `upsert` / `delete` / `query` in pgvector (own session) | ✅ |
+| 8 | `app/vectordb/search.py` | Query → embed → search → ranked `SearchResult`s | ✅ |
+| 9 | `app/services/note_embedding_service.py` | Write-side bridge; never raises (Feature 7) | ✅ |
+| 10 | `app/services/note_service.py` | Hook sync into create/update/delete | ✅ |
+| 11 | `app/api/routes/search.py` | `GET /search?query=...` | ✅ |
+| 12 | `app/main.py` | Register the search router | ✅ |
+| 13 | `README.md` | Phase 3 docs, diagrams, examples, scaling notes | ✅ |
 
-Phase 3 is complete: `main.py` mounts the search router at `GET /api/v1/search`,
-`note_service` syncs the vector index on note create / update / delete
-(best-effort — a Chroma failure never breaks CRUD), and `README.md` documents
-the endpoint, the write/query flow, setup, and scaling notes. **Next up: Phase 4
-(chat with notes / RAG).**
-
-### How it will fit together
+### How it fits together
 
 ```
 WRITE (on note create/update/delete)
-  note_service ──► note_embedding_service ──► embedding_service (text→vector)
-                                         └──► vector_store ──► chroma_client ──► ChromaDB (disk)
+  note_service ──► note_embedding_service ──► embedding_service (text→vector, Gemini)
+                                         └──► vector_store ──► note_embeddings (pgvector)
 
 QUERY (GET /search)
-  search router ──► search.py ──► embedding_service (query→vector)
-                              └──► vector_store ──► ChromaDB ──► ranked SearchResults (with similarity %)
+  search router ──► search.py ──► embedding_service (query→vector, Gemini)
+                              └──► vector_store ──► pgvector `<=>` + JOIN notes ──► ranked results
 ```
 
-- **Sync (Feature 5):** vector id = `str(note_id)` → update = upsert, delete = delete.
-- **Metadata (Feature 2):** note_id, title, category, priority, created_at, updated_at stored on each vector and returned with results.
-- **Score (Feature 4):** cosine distance → `similarity_score` percentage, sorted high→low.
+- **Sync (Feature 5):** vector row keyed on `note_id` → update = upsert, delete = delete.
+- **Metadata (Feature 2):** the vector row holds only the embedding; note_id, title, category, priority, and timestamps come from a JOIN to `notes`, so hits reflect the note's current state.
+- **Score (Feature 4):** cosine distance (`<=>`) → `similarity_score` percentage, sorted high→low.
 
 ---
 
@@ -165,23 +168,43 @@ POST /chat ──► chat router ──► RAGService.ask()
 
 ---
 
-## Phase 5 — Frontend, images, deployment 🔵 In progress
+## Phase 5 — Frontend, images, deployment ✅
 
 - **React frontend** consuming the API ✅ — Vite + React 19 + TypeScript + Tailwind v4;
   Notes / Tasks / Search / Chat tabs in `frontend/`.
 - **Image attachments** ✅ — notes can carry multiple images (one-to-many
-  `note_images` table, migration `0003`). Bytes stored on local disk under
-  `./media`, served via a FastAPI `/media` static mount; upload/list/delete
-  endpoints at `/api/v1/notes/{id}/images`; thumbnail grid + upload UI in the
-  Notes view. Verified end-to-end.
-- **Deployment** ✅ — Docker Compose: `api` (FastAPI) + `web` (nginx serving the
-  built SPA and reverse-proxying `/api` + `/media`). Two named volumes persist
-  `chroma_data` and `media`; Postgres stays remote (Neon). See the README
-  "Deployment (Docker)" section. `docker compose up --build`.
+  `note_images` table, migration `0003`). Storage is pluggable via
+  `IMAGE_STORAGE_BACKEND`: **local disk** (dev) or **Cloudflare R2** (production,
+  S3 API via boto3) — `image_storage_service.py` is an abstract base with
+  `LocalImageStorage` / `R2ImageStorage`. The response `url` is an absolute R2
+  URL under `r2`, or a `/media/...` path under `local`; upload/list/delete
+  endpoints at `/api/v1/notes/{id}/images`; thumbnail grid + upload UI in Notes.
+- **Deployment** ✅ — **Render free tier** via `render.yaml` Blueprint: a Docker
+  `api` service (`plan: free`, no disk) + a static `web` service. No torch (fits
+  512 MB RAM), vectors in pgvector, images in R2 — nothing needs a paid disk.
+  `docker-compose.yml` still runs the full stack locally (single `media` volume).
 - **Voice notes** — dropped (Web Speech API was unreliable in-browser; feature
   and its files were removed).
-- **Production optimization** (caching, batching, scaling the vector store) —
-  still open.
+
+### Free-deploy rework (2026-07-17)
+
+The stack was reworked from "runs on a paid box" to "runs free on Render":
+
+| Concern | Before | After |
+|---------|--------|-------|
+| Embeddings | local sentence-transformers (torch, ~2 GB RAM) | hosted **Gemini** API (no torch) |
+| Vectors | ChromaDB on a persistent disk | **pgvector** in Neon Postgres |
+| Image bytes | local disk (`./media`) | **Cloudflare R2** (S3-compatible) |
+| Render plan | `standard` (~$25/mo) + 5 GB disk | `free`, no disk |
+
+Files touched: `requirements.txt`, `config.py`, `embedding_service.py`,
+`vector_store.py`, `note_embedding_service.py`, new `note_embedding.py` +
+migration `0004`, deleted `chroma_client.py`, `image_storage_service.py`,
+`note_image.py` schema, `main.py`, frontend `client.ts`, `Dockerfile`,
+`render.yaml`, `docker-compose.yml`, `.env`/`.env.example`.
+
+- **Still open:** background/queued embedding for high write volume, caching,
+  and batching of embedding calls.
 
 ---
 
@@ -190,17 +213,16 @@ POST /chat ──► chat router ──► RAGService.ask()
 ```bash
 python -m venv .venv && .\.venv\Scripts\Activate.ps1     # Windows
 pip install -r requirements.txt
-copy .env.example .env        # set DATABASE_URL + OPENROUTER_API_KEY
-createdb ai_smart_notes
-alembic upgrade head          # applies 0001 + 0002
+copy .env.example .env        # set DATABASE_URL + OPENROUTER_API_KEY + EMBEDDING_API_KEY
+alembic upgrade head          # applies 0001–0004 (incl. CREATE EXTENSION vector)
 uvicorn app.main:app --reload # docs at http://127.0.0.1:8000/docs
 ```
 
-> Phase 3 & 4 are wired in: `GET /api/v1/search?query=...` (semantic search) and
-> `POST /api/v1/chat` (chat with notes / RAG) are live, and notes are indexed
-> into ChromaDB on create/update/delete.
-> All code so far is syntax-verified (`py_compile`); it has not been run
-> against a live PostgreSQL / OpenRouter / Chroma in this workspace.
+> `DATABASE_URL` must point at a **pgvector-capable Postgres** (e.g. Neon).
+> `GET /api/v1/search` (semantic search) and `POST /api/v1/chat` (RAG) are live;
+> notes are embedded (Gemini) and indexed into the `note_embeddings` pgvector
+> table on create/update/delete. To deploy free, see the README
+> "Deployment — Render (free tier)" section (`render.yaml` Blueprint).
 
 ---
 

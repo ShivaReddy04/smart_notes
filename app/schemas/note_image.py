@@ -49,10 +49,19 @@ class NoteImageResponse(BaseModel):
     @computed_field(description="Public URL to fetch the image bytes.")  # type: ignore[prop-decorator]
     @property
     def url(self) -> str:
-        """Build the browser-usable URL from the media prefix + stored name.
+        """Build the browser-usable URL for the stored image.
 
-        get_settings() is cached, so this is effectively free per call. The
-        result looks like "/media/9f3a...c1.png"; the frontend joins it onto
-        the API base to form an absolute URL.
+        The shape depends on the storage backend (get_settings() is cached, so
+        this is effectively free per call):
+          * "r2"   -> an ABSOLUTE URL on R2's public base, e.g.
+                      "https://<bucket>.r2.dev/9f3a...c1.png". The browser loads
+                      it straight from R2's CDN; the API never proxies bytes.
+          * local  -> a server-RELATIVE path, e.g. "/media/9f3a...c1.png", which
+                      the frontend joins onto the API origin.
+        The frontend's mediaUrl() handles both (it passes absolute URLs through
+        unchanged and only prefixes relative ones).
         """
-        return f"{get_settings().media_url_prefix}/{self.filename}"
+        settings = get_settings()
+        if settings.image_storage_backend == "r2":
+            return f"{settings.r2_public_base_url.rstrip('/')}/{self.filename}"
+        return f"{settings.media_url_prefix}/{self.filename}"

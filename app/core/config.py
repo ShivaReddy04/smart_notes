@@ -74,28 +74,43 @@ class Settings(BaseSettings):
     llm_timeout: float = 30.0
 
     # --- Embeddings & vector search (Phase 3) ---
-    # Per Feature 6, all vector tunables live here (never hardcoded). The
-    # embedding service, Chroma client, and search read these values.
+    # All vector tunables live here (never hardcoded). The embedding service,
+    # the pgvector store, and search read these values.
+    #
+    # We use a HOSTED embedding API instead of an on-device model: local
+    # sentence-transformers pulls in torch (~2 GB RAM) and does not fit a
+    # free-tier container. The call goes through langchain-openai's
+    # OpenAIEmbeddings pointed at an OpenAI-COMPATIBLE endpoint — Google
+    # Gemini by default — so switching providers is a base-url + model +
+    # dimensions change with no code edit.
 
-    # The sentence-transformers model used to embed notes and queries.
-    # Overridable, but note: changing it changes the vector dimensionality,
-    # which requires re-indexing existing vectors.
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Required: the embeddings API key. Like the other credentials there is no
+    # safe default, so the app refuses to start until it is provided. For the
+    # default Gemini endpoint this is a (free) Google AI Studio key.
+    embedding_api_key: str
 
-    # Where ChromaDB persists vectors on local disk (spec: persist locally).
-    # Relative to the project root by default.
-    chroma_persist_path: str = "./chroma_data"
+    # The OpenAI-compatible embeddings endpoint. Defaults to Gemini's; override
+    # to point at OpenAI ("https://api.openai.com/v1") or any compatible host.
+    embedding_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
-    # Name of the Chroma collection that holds note vectors.
-    chroma_collection_name: str = "notes"
+    # The embedding model slug. Defaulted to Gemini's text-embedding-004.
+    # Changing it may change the vector dimensionality (see below), which
+    # requires re-embedding existing notes.
+    embedding_model: str = "text-embedding-004"
+
+    # Dimensionality of the vectors this model emits. MUST match the pgvector
+    # column width in the note_embeddings table (migration 0004). Gemini's
+    # text-embedding-004 emits 768; OpenAI text-embedding-3-small emits 1536.
+    # Changing this requires a migration to resize the column and a re-embed.
+    embedding_dimensions: int = 768
+
+    # Bounded per-call timeout (seconds) so a slow/hung embeddings API cannot
+    # stall a request indefinitely.
+    embedding_timeout: float = 30.0
 
     # Default number of results returned by semantic search (the /search
     # endpoint may override this per request).
     search_top_k: int = 5
-
-    # Device sentence-transformers runs on: "cpu" (universal default) or
-    # "cuda" if a compatible GPU is available.
-    embedding_device: str = "cpu"
 
     # --- Frontend / CORS (Phase 5) ---
     # Origins the browser SPA is served from and therefore allowed to call this
@@ -111,18 +126,37 @@ class Settings(BaseSettings):
     ]
 
     # --- Image uploads (Phase 5) ---
-    # Notes can carry attached images (reference screenshots/photos). The bytes
-    # live on local disk and are served as static files; only metadata goes in
-    # the DB. These tunables are declared here, never hardcoded, so the storage
-    # service, the static mount in main.py, and the upload validation all read
-    # one source of truth — and so a deployment can override them via env.
+    # Notes can carry attached images (reference screenshots/photos). Only
+    # metadata goes in the DB; the bytes go to a storage backend selected here.
+    # These tunables are declared once so the storage service, the static mount
+    # in main.py, the upload validation, and the URL builder all agree.
 
-    # Filesystem directory where uploaded image bytes are stored. Kept at the
-    # PROJECT ROOT (a sibling of ./chroma_data), NOT inside the app/ package:
-    # app/ is source code, while uploads are runtime data. In Docker this
-    # directory is a mounted volume so images survive container redeploys,
-    # exactly like the Chroma vector store.
+    # Which storage backend holds the image bytes:
+    #   * "local" -> local disk under media_dir, served by StaticFiles (dev).
+    #   * "r2"    -> Cloudflare R2 (S3-compatible) object storage (production).
+    # The free tier has no persistent disk, so deployments set this to "r2".
+    image_storage_backend: str = "local"
+
+    # Filesystem directory where uploaded image bytes are stored when the
+    # backend is "local". Kept at the PROJECT ROOT, NOT inside the app/ package:
+    # app/ is source code, while uploads are runtime data. Ignored under "r2".
     media_dir: str = "./media"
+
+    # --- Cloudflare R2 / S3 object storage (used when backend == "r2") ---
+    # R2 exposes the S3 API, so boto3 talks to it. These are blank by default
+    # (local dev needs none) and set in the deployment environment.
+    #
+    #   * endpoint  -> https://<account_id>.r2.cloudflarestorage.com
+    #   * bucket    -> the R2 bucket that holds the image objects.
+    #   * public base URL -> where objects are publicly readable, either the
+    #     bucket's r2.dev URL or a custom domain. The image schema builds each
+    #     image's public URL as "<public base>/<stored filename>", so a client
+    #     loads it straight from R2's CDN — the API never proxies image bytes.
+    r2_endpoint_url: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket: str = ""
+    r2_public_base_url: str = ""
 
     # URL path prefix under which the stored images are served (main.py mounts
     # StaticFiles here). An image saved as <media_dir>/<filename> is reachable

@@ -28,10 +28,17 @@ langchain-core>=0.3.0     # Prompt templates, output parsers, Runnable pipes
 langchain-openai>=0.2.0   # ChatOpenAI client; points at OpenRouter's base_url
 
 # --- Embeddings & vector search (Phase 3) ---
-# Local, on-device embeddings + a local persistent vector store. No API
-# cost and full privacy, at the price of a larger install.
-# NOTE: sentence-transformers depends on PyTorch (torch), which is a large
-# download (hundreds of MB). The embedding model weights (~80MB for
-# all-MiniLM-L6-v2) are fetched once on first use and cached locally.
-sentence-transformers>=3.0.0  # all-MiniLM-L6-v2 text embeddings
-chromadb>=0.5.0               # Local persistent vector database
+# Hosted embeddings + Postgres-backed vectors. We deliberately DO NOT ship
+# torch/sentence-transformers: on-device embedding needs ~2 GB RAM, which
+# does not fit Render's free tier. Instead the embedding call goes to a
+# hosted API (Google Gemini via its OpenAI-compatible endpoint, using the
+# langchain-openai client already listed above), and the vectors live in
+# Postgres via pgvector — so no local model, no persistent disk, no extra
+# vector service. See app/ai/embedding_service.py and app/vectordb/.
+pgvector>=0.3.0               # SQLAlchemy Vector type + distance operators
+
+# --- Object storage (Phase 5 images) ---
+# Note-image bytes are stored in S3-compatible object storage (Cloudflare
+# R2) instead of local disk, because the free tier has no persistent disk.
+# boto3 speaks the S3 API that R2 exposes.
+boto3>=1.34.0                 # S3/R2 client for image uploads

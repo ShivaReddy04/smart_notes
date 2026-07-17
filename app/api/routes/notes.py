@@ -39,7 +39,7 @@ def get_note_service(db: Session = Depends(get_db)) -> NoteService:
     FastAPI resolves `get_db` (yielding a session for this request), then we
     layer the repository and service on top. The categorizer and the note
     embedding service are cached singletons (their LLM client / embedding
-    model / Chroma client are reused across requests). Declaring this as a
+    client / vector store are reused across requests). Declaring this as a
     dependency keeps construction in one place and lets tests override it.
     """
     return NoteService(

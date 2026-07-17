@@ -1,30 +1,40 @@
 """app/services/image_storage_service.py
 
 Why this file exists:
-    The single place that knows how to put image BYTES on disk and take them
-    off again — and the single gatekeeper that validates an upload before it
-    is ever written. Isolating all filesystem contact here means:
-      * the note-image service never touches `open()`/`os` directly, and
-      * if storage ever moves to S3/R2, only this class changes.
+    The single place that knows how to put image BYTES into storage and take
+    them off again — and the single gatekeeper that validates an upload before
+    it is ever written. Isolating all storage contact here means the note-image
+    service never touches `open()`/boto3 directly, and swapping backends is a
+    change confined to this file.
+
+    Two backends, one interface:
+        * LocalImageStorage -> bytes on local disk under `media_dir`, served by
+          StaticFiles. Used in development.
+        * R2ImageStorage    -> bytes in Cloudflare R2 (S3-compatible) object
+          storage via boto3. Used in production, because the free tier has no
+          persistent disk. Objects are read publicly straight from R2's CDN;
+          the API never proxies image bytes.
+    `get_image_storage_service()` picks the backend from Settings, so callers
+    just depend on the abstract ImageStorageService.
 
     Responsibility boundary:
         * Validate size and MIME type (raising BadRequestError -> HTTP 400).
         * Generate a safe, unique, server-owned filename (NEVER derived from
           user input, so path-traversal is impossible by construction).
-        * Write bytes to `media_dir`; delete bytes by stored filename.
-        * It does NOT know about notes, the database, or HTTP.
+        * Persist bytes; delete bytes by stored filename.
+        * It does NOT know about notes, the database, HTTP, or how the public
+          URL is built (that is the note_image schema).
 
     How it interacts with the rest of the app:
         * `NoteImageService` calls `save(...)` then persists the returned
           filename, and calls `delete(...)` when an image row is removed.
-        * `get_image_storage_service()` builds a cached singleton from
-          Settings, so the media directory is ensured to exist exactly once.
 """
 
 from __future__ import annotations
 
 import logging
 import secrets
+from abc import ABC, abstractmethod
 from functools import lru_cache
 from pathlib import Path
 
@@ -35,7 +45,7 @@ logger = logging.getLogger("ai_smart_notes")
 
 # Map each accepted MIME type to the extension we store it under. The stored
 # name's extension is chosen from THIS map (never from the user's filename),
-# so a mislabeled or hostile original name cannot influence the path.
+# so a mislabeled or hostile original name cannot influence the key/path.
 _EXTENSION_BY_TYPE: dict[str, str] = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -44,35 +54,27 @@ _EXTENSION_BY_TYPE: dict[str, str] = {
 }
 
 
-class ImageStorageService:
-    """Validates uploads and stores their bytes on local disk."""
+class ImageStorageService(ABC):
+    """Validates uploads and stores their bytes in some backend.
 
-    def __init__(
-        self,
-        media_dir: str,
-        allowed_types: list[str],
-        max_bytes: int,
-    ) -> None:
-        """Inject the storage policy (dir, allowed types, size cap) so the
-        class is testable with a temp directory and small limits.
+    The validation, size cap, and safe-name generation are shared here; each
+    concrete backend implements only where the bytes actually go (`_write`) and
+    how they are removed (`delete`).
+    """
 
-        The media directory is created up front (parents included) so the
-        first upload never fails on a missing folder.
-        """
-        self._dir = Path(media_dir)
+    def __init__(self, allowed_types: list[str], max_bytes: int) -> None:
         self._allowed_types = set(allowed_types)
         self._max_bytes = max_bytes
-        self._dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, data: bytes, content_type: str, original_name: str) -> str:
-        """Validate and write an uploaded image; return its stored filename.
+        """Validate and store an uploaded image; return its stored filename.
 
-        Validation order (fail before touching disk):
+        Validation order (fail before touching storage):
           1. Non-empty.
           2. MIME type is in the whitelist.
           3. Size within the configured cap.
-        The stored name is `<random hex><ext>`, unique by construction, so
-        two uploads of the same original file never collide.
+        The stored name is `<random hex><ext>`, unique by construction, so two
+        uploads of the same original file never collide.
         """
         if not data:
             raise BadRequestError("Uploaded image is empty.")
@@ -89,10 +91,8 @@ class ImageStorageService:
                 f"Image is too large ({len(data)} bytes); max is {max_mb:.1f} MB."
             )
 
-        extension = _EXTENSION_BY_TYPE[content_type]
-        filename = f"{secrets.token_hex(16)}{extension}"
-        destination = self._dir / filename
-        destination.write_bytes(data)
+        filename = f"{secrets.token_hex(16)}{_EXTENSION_BY_TYPE[content_type]}"
+        self._write(data, filename, content_type)
         logger.info(
             "Stored image %s (%d bytes, %s) from original %r",
             filename,
@@ -102,29 +102,113 @@ class ImageStorageService:
         )
         return filename
 
-    def delete(self, filename: str) -> None:
-        """Delete a stored file by its filename. Best-effort and idempotent.
+    @abstractmethod
+    def _write(self, data: bytes, filename: str, content_type: str) -> None:
+        """Persist already-validated bytes under `filename` in the backend."""
 
-        A missing file is NOT an error: if the row exists but the file was
-        already removed, the desired end state (no file) is met. We never let
-        a filesystem hiccup block the row deletion above us, so we log and
-        swallow unexpected errors.
-        """
+    @abstractmethod
+    def delete(self, filename: str) -> None:
+        """Delete a stored object by its filename. Best-effort and idempotent."""
+
+
+class LocalImageStorage(ImageStorageService):
+    """Stores image bytes on the local filesystem (development backend)."""
+
+    def __init__(self, media_dir: str, allowed_types: list[str], max_bytes: int) -> None:
+        """The media directory is created up front (parents included) so the
+        first upload never fails on a missing folder."""
+        super().__init__(allowed_types, max_bytes)
+        self._dir = Path(media_dir)
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    def _write(self, data: bytes, filename: str, content_type: str) -> None:
+        (self._dir / filename).write_bytes(data)
+
+    def delete(self, filename: str) -> None:
+        """Delete a file by name. A missing file is NOT an error: the desired
+        end state (no file) is already met. Never let a filesystem hiccup block
+        the row deletion above us, so log and swallow unexpected errors."""
         try:
             (self._dir / filename).unlink(missing_ok=True)
         except OSError:
             logger.exception("Failed to delete image file %s", filename)
 
 
+class R2ImageStorage(ImageStorageService):
+    """Stores image bytes in Cloudflare R2 (S3-compatible) via boto3.
+
+    R2 speaks the S3 API, so a standard boto3 S3 client works once pointed at
+    the account endpoint. The client is built once and reused. Public reads
+    happen directly against the bucket's public URL (built by the schema), so
+    this class only ever writes and deletes.
+    """
+
+    def __init__(
+        self,
+        endpoint_url: str,
+        access_key_id: str,
+        secret_access_key: str,
+        bucket: str,
+        allowed_types: list[str],
+        max_bytes: int,
+    ) -> None:
+        super().__init__(allowed_types, max_bytes)
+        # Imported lazily so the (heavier) boto3 import is only paid when the R2
+        # backend is actually selected, keeping local/dev startup light.
+        import boto3
+
+        self._bucket = bucket
+        self._client = boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key_id,
+            aws_secret_access_key=secret_access_key,
+            # R2 ignores AWS regions but the S3 client requires a value;
+            # "auto" is R2's documented placeholder.
+            region_name="auto",
+        )
+
+    def _write(self, data: bytes, filename: str, content_type: str) -> None:
+        # ContentType is set so the browser renders the object inline (image/*)
+        # instead of downloading it as octet-stream.
+        self._client.put_object(
+            Bucket=self._bucket,
+            Key=filename,
+            Body=data,
+            ContentType=content_type,
+        )
+
+    def delete(self, filename: str) -> None:
+        """Delete an object by key. S3/R2 delete is already idempotent (a
+        missing key is not an error), but we still log+swallow any transport
+        error so a storage hiccup cannot block the row deletion above us."""
+        try:
+            self._client.delete_object(Bucket=self._bucket, Key=filename)
+        except Exception:  # noqa: BLE001 — best-effort, mirrors the local backend
+            logger.exception("Failed to delete R2 object %s", filename)
+
+
 @lru_cache
 def get_image_storage_service() -> ImageStorageService:
-    """Return a cached ImageStorageService built from Settings.
+    """Return a cached ImageStorageService chosen from Settings.
 
-    Cached so the media directory is created once and the same instance is
-    reused across requests (there is no per-request state).
+    Cached so the backend (and, for R2, its boto3 client / for local, its
+    directory) is built once and reused across requests. The backend is
+    selected by `image_storage_backend`: "r2" in production, "local" otherwise.
     """
     settings = get_settings()
-    return ImageStorageService(
+    if settings.image_storage_backend == "r2":
+        logger.info("Using R2 image storage (bucket=%s)", settings.r2_bucket)
+        return R2ImageStorage(
+            endpoint_url=settings.r2_endpoint_url,
+            access_key_id=settings.r2_access_key_id,
+            secret_access_key=settings.r2_secret_access_key,
+            bucket=settings.r2_bucket,
+            allowed_types=settings.allowed_image_types,
+            max_bytes=settings.max_image_bytes,
+        )
+    logger.info("Using local-disk image storage (dir=%s)", settings.media_dir)
+    return LocalImageStorage(
         media_dir=settings.media_dir,
         allowed_types=settings.allowed_image_types,
         max_bytes=settings.max_image_bytes,

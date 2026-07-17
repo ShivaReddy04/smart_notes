@@ -10,7 +10,7 @@ Why this file exists:
 
     Responsibility boundary:
         Orchestration + scoring. It does not know how embeddings are computed
-        (embedding_service) or how Chroma is queried (vector_store); it only
+        (embedding_service) or how the vector store is queried (vector_store); it only
         sequences them and turns raw distances into ranked SearchResult DTOs.
 
     How it interacts with the rest of the app:
@@ -32,9 +32,9 @@ logger = logging.getLogger("ai_smart_notes.search")
 
 
 def _distance_to_similarity(distance: float) -> int:
-    """Convert a Chroma cosine distance into a 0-100 similarity percentage.
+    """Convert a pgvector cosine distance into a 0-100 similarity percentage.
 
-    Chroma reports cosine *distance* (0.0 == identical, larger == farther).
+    pgvector reports cosine *distance* (0.0 == identical, larger == farther).
     Because our embeddings are unit-normalized, similarity is simply
     `1 - distance`. We scale to a percentage and clamp to [0, 100]: cosine
     similarity can be negative for unrelated vectors (distance > 1), and a
@@ -68,7 +68,7 @@ class SearchService:
         `top_k` falls back to the configured default when not supplied.
         """
         if not query or not query.strip():
-            # Nothing to search for — skip the embedding + Chroma round-trip.
+            # Nothing to search for — skip the embedding + vector-store round-trip.
             logger.debug("Empty search query; returning no results")
             return []
 
@@ -95,7 +95,7 @@ class SearchService:
 
 
 # Module-level singleton, populated lazily so importing this module never
-# constructs the embedding model or the Chroma client.
+# constructs the embedding client or opens a database session.
 _search_service: SearchService | None = None
 
 

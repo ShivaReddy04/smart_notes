@@ -113,17 +113,22 @@ app.include_router(note_images.router, prefix=settings.api_v1_prefix)
 
 # --- Static media (Phase 5) ------------------------------------------
 # Uploaded note images are served straight from disk at `media_url_prefix`
-# (e.g. GET /media/<file>). The directory is created first because
-# StaticFiles refuses to mount a path that does not exist — this guarantees
-# a fresh checkout (or a fresh Docker volume) boots without a missing-dir
-# error even before the first upload. The image schema builds each image's
-# public URL from this same prefix, so the two always agree.
-os.makedirs(settings.media_dir, exist_ok=True)
-app.mount(
-    settings.media_url_prefix,
-    StaticFiles(directory=settings.media_dir),
-    name="media",
-)
+# (e.g. GET /media/<file>) ONLY when the local storage backend is active. The
+# directory is created first because StaticFiles refuses to mount a path that
+# does not exist — this guarantees a fresh checkout boots without a missing-dir
+# error even before the first upload.
+#
+# On the "r2" backend the bytes live in Cloudflare R2 and are served from R2's
+# public URL (see note_image schema), so there is nothing local to mount — and
+# mounting would fail anyway on a free tier with no writable disk. The two
+# backends therefore never both mount here.
+if settings.image_storage_backend != "r2":
+    os.makedirs(settings.media_dir, exist_ok=True)
+    app.mount(
+        settings.media_url_prefix,
+        StaticFiles(directory=settings.media_dir),
+        name="media",
+    )
 
 
 # --- Health check -----------------------------------------------------

@@ -23,12 +23,11 @@ services:
     # web container reaches it internally as http://api:8000 regardless.
     ports:
       - "8000:8000"
-    # Named volumes persist runtime data across container rebuilds:
-    #   * chroma_data -> the local vector index (Phase 3 semantic search).
-    #   * media       -> uploaded note images (Phase 5).
-    # Paths match the app's defaults (relative to WORKDIR /app).
+    # Named volume persists uploaded note images (Phase 5) across container
+    # rebuilds when running with the "local" image backend. Vectors are NOT a
+    # volume anymore — they live in Postgres (pgvector) via DATABASE_URL. If you
+    # set IMAGE_STORAGE_BACKEND=r2 in .env, this volume simply goes unused.
     volumes:
-      - chroma_data:/app/chroma_data
       - media:/app/media
     restart: unless-stopped
 
@@ -46,8 +45,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-# Docker-managed named volumes (survive `docker compose down`; removed only
+# Docker-managed named volume (survives `docker compose down`; removed only
 # with `docker compose down -v`).
 volumes:
-  chroma_data:
   media:

@@ -21,7 +21,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # curl is only needed for the container HEALTHCHECK below. psycopg2-binary and
-# torch ship prebuilt wheels, so no compiler/system libs are required.
+# the remaining wheels are prebuilt, so no compiler/system libs are required.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
@@ -29,14 +29,11 @@ RUN apt-get update \
 # Install Python deps FIRST so this layer is cached and only rebuilds when
 # requirements.txt changes — not on every code edit.
 #
-# CPU-only PyTorch: sentence-transformers depends on torch, and the DEFAULT
-# torch wheel bundles ~2-3 GB of CUDA/NVIDIA GPU libraries. This deployment
-# runs on CPU (EMBEDDING_DEVICE=cpu), so we install the CPU build from
-# PyTorch's CPU wheel index FIRST. That satisfies the torch dependency, so the
-# subsequent requirements install pulls no GPU stack — keeping the image lean.
+# NOTE: there is no torch/PyTorch here anymore. Embeddings are produced by a
+# hosted API (see app/ai/embedding_service.py) and vectors live in Postgres via
+# pgvector, so the image stays small and boots within a free-tier RAM limit.
 COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install --index-url https://download.pytorch.org/whl/cpu torch \
     && pip install -r requirements.txt
 
 # Copy the application code and the Alembic migration tooling.
@@ -44,14 +41,16 @@ COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
 
-# Create the runtime data directories. In compose these paths are also backed
-# by named volumes so their contents persist across container replacements.
-RUN mkdir -p media chroma_data
+# Create the local media directory used by the "local" image-storage backend
+# (dev / docker-compose). In production the backend is "r2" and this stays
+# empty. Vectors no longer live on disk (they are in Postgres), so there is no
+# chroma_data directory anymore.
+RUN mkdir -p media
 
 EXPOSE 8000
 
 # Liveness probe hitting the app's own /health endpoint. start-period gives the
-# process time to boot (and to lazily load the embedding model on first use).
+# process time to run migrations and start Uvicorn.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl -fsS http://localhost:8000/health || exit 1
 

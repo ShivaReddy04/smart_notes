@@ -30,14 +30,23 @@ const BASE_URL =
 
 /**
  * The server ORIGIN, derived by stripping the '/api/v1' suffix off BASE_URL.
- * Uploaded images are served at the origin root (e.g. '/media/…'), NOT under
- * the API prefix, so `mediaUrl()` joins their server-relative `url` onto this.
+ * With the local storage backend, images are served at the origin root
+ * (e.g. '/media/…'), NOT under the API prefix, so `mediaUrl()` joins their
+ * server-relative `url` onto this.
  */
 const API_ORIGIN = BASE_URL.replace(/\/api\/v\d+\/?$/, '')
 
-/** Turn a note image's server-relative `url` into an absolute, loadable URL. */
+/**
+ * Turn a note image's `url` into an absolute, loadable URL.
+ *
+ * The backend returns either an absolute URL (the R2 backend, e.g.
+ * 'https://…r2.dev/abc.png') or a server-relative path (the local backend,
+ * '/media/abc.png'). An already-absolute URL is returned unchanged; only a
+ * relative path is prefixed with the API origin. This lets the same frontend
+ * work against either storage backend with no build-time switch.
+ */
 export function mediaUrl(path: string): string {
-  return `${API_ORIGIN}${path}`
+  return /^https?:\/\//i.test(path) ? path : `${API_ORIGIN}${path}`
 }
 
 /** Error thrown for any non-2xx response, carrying the status + backend detail. */

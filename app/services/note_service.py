@@ -151,5 +151,5 @@ class NoteService:
         note = self._get_or_404(note_id)
         self._repository.delete(note)
         # Best-effort: drop the note's vector from the index. remove_note never
-        # raises, so a Chroma failure cannot block the deletion.
+        # raises, so a vector-store failure cannot block the deletion.
         self._note_embedding_service.remove_note(note_id)

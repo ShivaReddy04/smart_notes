@@ -34,5 +34,6 @@ from app.core.database import Base  # noqa: F401  (re-exported on purpose)
 # We are building the project one file at a time, so model modules are
 # registered here the moment their file is created:
 from app.models.note import Note  # noqa: F401
+from app.models.note_embedding import NoteEmbedding  # noqa: F401
 from app.models.note_image import NoteImage  # noqa: F401
 from app.models.task import Task  # noqa: F401
