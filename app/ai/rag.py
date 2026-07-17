@@ -20,9 +20,11 @@ Why this file exists:
         the `{context}` the prompt expects.
 
     Two deliberate reliability policies:
-        * Empty retrieval is GRACEFUL. If no relevant notes are found we return
-          an honest "nothing found" answer with empty sources and DO NOT call the
-          LLM — a generation with no context cannot be grounded, so we skip it.
+        * Empty context is GRACEFUL. If no relevant notes are found AND the user
+          has no tasks, we return an honest "nothing found" answer with empty
+          sources and DO NOT call the LLM — a generation with no grounding cannot
+          be trusted, so we skip it. (Tasks alone are enough to answer, so we
+          still generate when notes are empty but tasks exist.)
         * Generation failure SURFACES. Unlike the categorizer (which falls back
           to safe defaults so CRUD never breaks), a failed chat answer must not
           be faked. Exceptions propagate to main.py's catch-all handler as a
@@ -43,6 +45,7 @@ from app.ai.embedding_models import SearchResult
 from app.ai.llm import get_llm
 from app.ai.rag_prompts import build_rag_prompt
 from app.core.config import get_settings
+from app.models.task import Task
 from app.schemas.chat import ChatResponse, ChatSource
 from app.vectordb.search import SearchService, get_search_service
 
@@ -55,9 +58,17 @@ logger = logging.getLogger("ai_smart_notes.rag")
 # categorizer's MAX_INPUT_CHARS cap (a module constant, not a tunable setting).
 MAX_CONTEXT_CHARS = 6000
 
-# The honest answer returned when retrieval finds nothing relevant. Kept as a
-# constant so the "no grounding" response is defined in exactly one place.
-NO_CONTEXT_ANSWER = "I couldn't find anything relevant in your notes to answer that."
+# Separate, smaller cap for the tasks block. Tasks are one-liners (status +
+# title + due date), so they need far less room than note bodies; bounding them
+# on their own keeps a long to-do list from crowding out the note context.
+MAX_TASKS_CHARS = 2000
+
+# The honest answer returned when there is nothing to ground on (no relevant
+# notes and no tasks). Kept as a constant so the "no grounding" response is
+# defined in exactly one place.
+NO_CONTEXT_ANSWER = (
+    "I couldn't find anything relevant in your notes or tasks to answer that."
+)
 
 
 class RAGService:
@@ -105,6 +116,39 @@ class RAGService:
         return "\n\n".join(blocks)
 
     @staticmethod
+    def _format_tasks(tasks: list[Task]) -> str:
+        """Render the user's tasks into the compact block the prompt expects.
+
+        Each task becomes ONE numbered line carrying its status and (when set)
+        its due date, e.g. "1. [Pending] Pay bill — before 5pm (due 2026-07-18
+        17:00)". A one-line-per-task shape (not the note-style title+body block)
+        is what lets the model answer "what's pending / due" cleanly. Entries are
+        added whole until MAX_TASKS_CHARS would be exceeded, then we stop —
+        bounding the block the same way _format_context bounds notes. Tasks are
+        passed newest-first, so the oldest are the ones dropped.
+        """
+        if not tasks:
+            # A real, explicit value (not "") so the prompt's {tasks} slot never
+            # renders blank and the model knows there are simply no tasks.
+            return "(no tasks)"
+
+        lines: list[str] = []
+        used = 0
+        for index, task in enumerate(tasks, start=1):
+            description = (task.description or "").strip()
+            detail = f" — {description}" if description else ""
+            due = f" (due {task.due_date:%Y-%m-%d %H:%M})" if task.due_date else ""
+            # .value -> the human-readable status string ("In Progress"), not the
+            # enum member repr.
+            line = f"{index}. [{task.status.value}] {task.title}{detail}{due}"
+            if used + len(line) + 1 > MAX_TASKS_CHARS and lines:
+                logger.debug("Task block truncated at %d of %d tasks", index - 1, len(tasks))
+                break
+            lines.append(line)
+            used += len(line) + 1
+        return "\n".join(lines)
+
+    @staticmethod
     def _to_sources(hits: list[SearchResult]) -> list[ChatSource]:
         """Project the retrieved hits into the slim ChatSource shape returned to
         the client — just enough (id, title, score) to prove grounding and link
@@ -118,19 +162,27 @@ class RAGService:
             for hit in hits
         ]
 
-    def ask(self, question: str, top_k: int | None = None) -> ChatResponse:
-        """Answer `question` using the user's notes as grounding.
+    def ask(
+        self,
+        question: str,
+        top_k: int | None = None,
+        tasks: list[Task] | None = None,
+    ) -> ChatResponse:
+        """Answer `question` using the user's notes AND tasks as grounding.
 
         Steps:
             1. Guard empty input -> honest "nothing found" answer (no work).
             2. Retrieve the most relevant notes (SearchService).
-            3. If nothing relevant was found -> "nothing found" answer, no LLM
-               call (a grounded answer is impossible without context).
-            4. Otherwise format the notes into context, invoke the chain, and
-               return the generated answer plus the sources it was grounded in.
+            3. If nothing relevant was found AND there are no tasks -> "nothing
+               found" answer, no LLM call (there is nothing to ground on).
+            4. Otherwise format the notes + tasks into context, invoke the chain,
+               and return the generated answer plus the note sources it used.
 
-        `top_k` falls back to the configured `search_top_k` when omitted. Any
-        failure during generation propagates (a 500), never a fabricated answer.
+        `top_k` falls back to the configured `search_top_k` when omitted. `tasks`
+        is the user's task list, supplied by the route (the RAG service has no DB
+        session of its own); when omitted the chat behaves exactly as before.
+        Any failure during generation propagates (a 500), never a fabricated
+        answer.
         """
         if not question or not question.strip():
             # Defense in depth: the schema already rejects empty questions, but
@@ -140,16 +192,25 @@ class RAGService:
         limit = top_k if top_k is not None else get_settings().search_top_k
         hits = self._search_service.search(query=question, top_k=limit)
 
-        if not hits:
-            logger.debug("Chat found no relevant notes; returning no-context answer")
+        tasks = tasks or []
+        if not hits and not tasks:
+            logger.debug("Chat found no relevant notes and no tasks; returning no-context answer")
             return ChatResponse(answer=NO_CONTEXT_ANSWER, sources=[])
 
-        context = self._format_context(hits)
+        # With tasks but no matching notes we still answer — the tasks alone are
+        # valid grounding. A placeholder keeps the notes slot non-empty so the
+        # model reads it as "no relevant notes", not a malformed prompt.
+        context = self._format_context(hits) if hits else "(no relevant notes found)"
+        tasks_block = self._format_tasks(tasks)
         # No try/except: a generation failure must surface as an error, not be
         # disguised as an answer (see this module's reliability policy).
-        answer = self._chain.invoke({"context": context, "question": question.strip()})
-        logger.debug("Chat answered from %d note(s)", len(hits))
+        answer = self._chain.invoke(
+            {"context": context, "tasks": tasks_block, "question": question.strip()}
+        )
+        logger.debug("Chat answered from %d note(s) and %d task(s)", len(hits), len(tasks))
 
+        # Sources remain the retrieved NOTES only (they carry a similarity score);
+        # tasks are grounding but not a scored "source", so they are not listed.
         return ChatResponse(answer=answer.strip(), sources=self._to_sources(hits))
 
 

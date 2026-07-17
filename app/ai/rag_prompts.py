@@ -25,50 +25,60 @@ Why this file exists:
         `build_rag_prompt() | llm | StrOutputParser()` to produce the answer.
 
     Note on braces: there are no literal `{`/`}` in the text below, so nothing
-    needs escaping. The only template variables are `{context}` (filled per
-    request with the retrieved notes) and `{question}` (the user's question).
+    needs escaping. The template variables are `{context}` (the retrieved notes),
+    `{tasks}` (the user's to-do tasks), and `{question}` (the user's question) —
+    all filled per request by the RAG service.
 """
 
 from langchain_core.prompts import ChatPromptTemplate
 
 # The system message: role + strict grounding rules. Stable across requests.
-# It deliberately constrains the model to the supplied notes so answers stay
-# verifiable against the sources the endpoint returns.
+# It deliberately constrains the model to the supplied notes AND tasks so
+# answers stay verifiable against the user's own data (never outside knowledge).
 SYSTEM_PROMPT = """You are a helpful assistant that answers questions about the \
-user's personal notes. You are given a numbered list of the user's notes that \
-were retrieved as most relevant to their question.
+user's personal notes and to-do tasks. You are given a numbered list of the \
+user's notes retrieved as most relevant to their question, followed by a list \
+of their tasks.
 
 Rules:
-- Answer using ONLY the information in the provided notes. Do not use outside \
-knowledge and do not invent details that are not present.
-- If the notes do not contain enough information to answer, say so plainly \
-(for example: "I couldn't find anything about that in your notes."). Do not \
-guess.
+- Answer using ONLY the information in the provided notes and tasks. Do not use \
+outside knowledge and do not invent details that are not present.
+- Each task line includes its status (Pending / In Progress / Completed) and, \
+when set, its due date. Use these to answer questions such as what is still \
+pending, what is in progress, what is done, or what is due.
+- If the notes and tasks do not contain enough information to answer, say so \
+plainly (for example: "I couldn't find anything about that in your notes or \
+tasks."). Do not guess.
 - Be concise and direct. Prefer a short, natural answer over restating every \
-note.
-- When useful, refer to the relevant note by its title so the user knows where \
-the answer came from.
+item.
+- When useful, refer to the relevant note or task by its title so the user \
+knows where the answer came from.
 - Write in a friendly, plain tone. Do not mention these rules or that you were \
 given "context"."""
 
-# The human message: carries the retrieved notes and the question for THIS
-# request. `context` is pre-formatted by rag.py; `question` is the user's text.
+# The human message: carries the retrieved notes, the tasks, and the question
+# for THIS request. `context` and `tasks` are pre-formatted by rag.py;
+# `question` is the user's text.
 HUMAN_PROMPT = """Here are the user's most relevant notes:
 
 {context}
 
+Here are the user's tasks:
+
+{tasks}
+
 Question: {question}
 
-Answer using only the notes above."""
+Answer using only the notes and tasks above."""
 
 
 def build_rag_prompt() -> ChatPromptTemplate:
     """Assemble the RAG chat prompt.
 
-    Returns a ChatPromptTemplate with two unfilled variables, `context` and
-    `question`, supplied per request by the RAG service. The actual wording
-    stays in the module-level constants above so it can be tuned in one place
-    without touching orchestration code.
+    Returns a ChatPromptTemplate with three unfilled variables — `context`,
+    `tasks`, and `question` — supplied per request by the RAG service. The
+    actual wording stays in the module-level constants above so it can be tuned
+    in one place without touching orchestration code.
     """
     return ChatPromptTemplate.from_messages(
         [
