@@ -53,15 +53,16 @@ class NoteImageResponse(BaseModel):
 
         The shape depends on the storage backend (get_settings() is cached, so
         this is effectively free per call):
-          * "r2"   -> an ABSOLUTE URL on R2's public base, e.g.
-                      "https://<bucket>.r2.dev/9f3a...c1.png". The browser loads
-                      it straight from R2's CDN; the API never proxies bytes.
+          * "s3"   -> an ABSOLUTE URL on the provider's public base, e.g.
+                      "https://<ref>.supabase.co/storage/v1/object/public/<bucket>/9f3a.png".
+                      The browser loads it straight from the provider's CDN; the
+                      API never proxies bytes.
           * local  -> a server-RELATIVE path, e.g. "/media/9f3a...c1.png", which
                       the frontend joins onto the API origin.
         The frontend's mediaUrl() handles both (it passes absolute URLs through
         unchanged and only prefixes relative ones).
         """
         settings = get_settings()
-        if settings.image_storage_backend == "r2":
-            return f"{settings.r2_public_base_url.rstrip('/')}/{self.filename}"
+        if settings.image_storage_backend == "s3":
+            return f"{settings.s3_public_base_url.rstrip('/')}/{self.filename}"
         return f"{settings.media_url_prefix}/{self.filename}"

@@ -26,7 +26,7 @@ services:
     # Named volume persists uploaded note images (Phase 5) across container
     # rebuilds when running with the "local" image backend. Vectors are NOT a
     # volume anymore — they live in Postgres (pgvector) via DATABASE_URL. If you
-    # set IMAGE_STORAGE_BACKEND=r2 in .env, this volume simply goes unused.
+    # set IMAGE_STORAGE_BACKEND=s3 in .env, this volume simply goes unused.
     volumes:
       - media:/app/media
     restart: unless-stopped

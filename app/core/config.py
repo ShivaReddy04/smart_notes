@@ -133,30 +133,39 @@ class Settings(BaseSettings):
 
     # Which storage backend holds the image bytes:
     #   * "local" -> local disk under media_dir, served by StaticFiles (dev).
-    #   * "r2"    -> Cloudflare R2 (S3-compatible) object storage (production).
-    # The free tier has no persistent disk, so deployments set this to "r2".
+    #   * "s3"    -> any S3-compatible object storage (production). Works with
+    #     Supabase Storage, Cloudflare R2, AWS S3, MinIO, etc.
+    # The free tier has no persistent disk, so deployments set this to "s3".
     image_storage_backend: str = "local"
 
     # Filesystem directory where uploaded image bytes are stored when the
     # backend is "local". Kept at the PROJECT ROOT, NOT inside the app/ package:
-    # app/ is source code, while uploads are runtime data. Ignored under "r2".
+    # app/ is source code, while uploads are runtime data. Ignored under "s3".
     media_dir: str = "./media"
 
-    # --- Cloudflare R2 / S3 object storage (used when backend == "r2") ---
-    # R2 exposes the S3 API, so boto3 talks to it. These are blank by default
-    # (local dev needs none) and set in the deployment environment.
+    # --- S3-compatible object storage (used when backend == "s3") --------
+    # boto3 speaks the S3 API that Supabase Storage / R2 / AWS all expose. These
+    # are blank by default (local dev needs none) and set in the deployment env.
     #
-    #   * endpoint  -> https://<account_id>.r2.cloudflarestorage.com
-    #   * bucket    -> the R2 bucket that holds the image objects.
-    #   * public base URL -> where objects are publicly readable, either the
-    #     bucket's r2.dev URL or a custom domain. The image schema builds each
-    #     image's public URL as "<public base>/<stored filename>", so a client
-    #     loads it straight from R2's CDN — the API never proxies image bytes.
-    r2_endpoint_url: str = ""
-    r2_access_key_id: str = ""
-    r2_secret_access_key: str = ""
-    r2_bucket: str = ""
-    r2_public_base_url: str = ""
+    #   * endpoint  -> the provider's S3 endpoint, e.g. for Supabase:
+    #                  https://<project_ref>.supabase.co/storage/v1/s3
+    #                  (R2: https://<account_id>.r2.cloudflarestorage.com)
+    #   * region    -> the provider's region. Supabase/AWS require a real value
+    #                  (shown in the Supabase Storage settings, e.g. us-east-1);
+    #                  R2 ignores it but the S3 client still needs one ("auto").
+    #   * bucket    -> the bucket that holds the image objects (must be PUBLIC
+    #                  for the public URLs below to be readable).
+    #   * public base URL -> where objects are publicly readable. The image
+    #     schema builds each image's URL as "<public base>/<stored filename>",
+    #     so a client loads it straight from the provider's CDN; the API never
+    #     proxies image bytes. For a Supabase public bucket this is:
+    #       https://<project_ref>.supabase.co/storage/v1/object/public/<bucket>
+    s3_endpoint_url: str = ""
+    s3_region: str = "us-east-1"
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_bucket: str = ""
+    s3_public_base_url: str = ""
 
     # URL path prefix under which the stored images are served (main.py mounts
     # StaticFiles here). An image saved as <media_dir>/<filename> is reachable

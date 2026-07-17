@@ -38,7 +38,7 @@ langchain-openai>=0.2.0   # ChatOpenAI client; points at OpenRouter's base_url
 pgvector>=0.3.0               # SQLAlchemy Vector type + distance operators
 
 # --- Object storage (Phase 5 images) ---
-# Note-image bytes are stored in S3-compatible object storage (Cloudflare
-# R2) instead of local disk, because the free tier has no persistent disk.
-# boto3 speaks the S3 API that R2 exposes.
-boto3>=1.34.0                 # S3/R2 client for image uploads
+# Note-image bytes are stored in S3-compatible object storage (Supabase
+# Storage by default; also R2 / AWS S3 / MinIO) instead of local disk,
+# because the free tier has no persistent disk. boto3 speaks the S3 API.
+boto3>=1.34.0                 # S3-compatible client for image uploads

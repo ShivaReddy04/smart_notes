@@ -1,6 +1,6 @@
 # AI Smart Notes — Project Status & Roadmap
 
-_Last updated: 2026-07-17_ · Phases 1–5 complete; reworked to deploy on Render's **free tier** (hosted Gemini embeddings + Postgres pgvector + Cloudflare R2, no torch, no disk).
+_Last updated: 2026-07-17_ · Phases 1–5 complete; reworked to deploy on Render's **free tier** (hosted Gemini embeddings + Postgres pgvector + Supabase Storage, no torch, no disk).
 
 A single-page map of **what is built** and **what is planned**, across all five
 phases. Legend: ✅ done · 🔨 in progress · ⬜ planned.
@@ -15,7 +15,7 @@ phases. Legend: ✅ done · 🔨 in progress · ⬜ planned.
 | **2** | AI categorization + priority detection (OpenRouter) | ✅ Complete |
 | **3** | Embeddings + semantic search (**Gemini embeddings + Postgres pgvector**) | ✅ Complete |
 | **4** | Chat with notes (RAG pipeline) | ✅ Complete |
-| **5** | React frontend, image attachments (**Cloudflare R2**), **Render free-tier deploy** | ✅ Complete |
+| **5** | React frontend, image attachments (**Supabase Storage**), **Render free-tier deploy** | ✅ Complete |
 
 ---
 
@@ -174,15 +174,17 @@ POST /chat ──► chat router ──► RAGService.ask()
   Notes / Tasks / Search / Chat tabs in `frontend/`.
 - **Image attachments** ✅ — notes can carry multiple images (one-to-many
   `note_images` table, migration `0003`). Storage is pluggable via
-  `IMAGE_STORAGE_BACKEND`: **local disk** (dev) or **Cloudflare R2** (production,
-  S3 API via boto3) — `image_storage_service.py` is an abstract base with
-  `LocalImageStorage` / `R2ImageStorage`. The response `url` is an absolute R2
-  URL under `r2`, or a `/media/...` path under `local`; upload/list/delete
-  endpoints at `/api/v1/notes/{id}/images`; thumbnail grid + upload UI in Notes.
+  `IMAGE_STORAGE_BACKEND`: **local disk** (dev) or **S3-compatible** (production,
+  via boto3 — Supabase Storage by default, also R2/AWS/MinIO).
+  `image_storage_service.py` is an abstract base with `LocalImageStorage` /
+  `S3ImageStorage`. The response `url` is an absolute provider URL under `s3`,
+  or a `/media/...` path under `local`; upload/list/delete endpoints at
+  `/api/v1/notes/{id}/images`; thumbnail grid + upload UI in Notes.
 - **Deployment** ✅ — **Render free tier** via `render.yaml` Blueprint: a Docker
   `api` service (`plan: free`, no disk) + a static `web` service. No torch (fits
-  512 MB RAM), vectors in pgvector, images in R2 — nothing needs a paid disk.
-  `docker-compose.yml` still runs the full stack locally (single `media` volume).
+  512 MB RAM), vectors in pgvector, images in Supabase Storage — nothing needs a
+  paid disk. `docker-compose.yml` still runs the full stack locally (single
+  `media` volume).
 - **Voice notes** — dropped (Web Speech API was unreliable in-browser; feature
   and its files were removed).
 
@@ -194,7 +196,7 @@ The stack was reworked from "runs on a paid box" to "runs free on Render":
 |---------|--------|-------|
 | Embeddings | local sentence-transformers (torch, ~2 GB RAM) | hosted **Gemini** API (no torch) |
 | Vectors | ChromaDB on a persistent disk | **pgvector** in Neon Postgres |
-| Image bytes | local disk (`./media`) | **Cloudflare R2** (S3-compatible) |
+| Image bytes | local disk (`./media`) | **Supabase Storage** (S3-compatible) |
 | Render plan | `standard` (~$25/mo) + 5 GB disk | `free`, no disk |
 
 Files touched: `requirements.txt`, `config.py`, `embedding_service.py`,

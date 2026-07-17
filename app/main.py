@@ -118,11 +118,11 @@ app.include_router(note_images.router, prefix=settings.api_v1_prefix)
 # does not exist — this guarantees a fresh checkout boots without a missing-dir
 # error even before the first upload.
 #
-# On the "r2" backend the bytes live in Cloudflare R2 and are served from R2's
-# public URL (see note_image schema), so there is nothing local to mount — and
-# mounting would fail anyway on a free tier with no writable disk. The two
-# backends therefore never both mount here.
-if settings.image_storage_backend != "r2":
+# On the "s3" backend the bytes live in S3-compatible storage (Supabase/R2/…)
+# and are served from the provider's public URL (see note_image schema), so
+# there is nothing local to mount — and mounting would fail anyway on a free
+# tier with no writable disk. We therefore mount ONLY for the local backend.
+if settings.image_storage_backend == "local":
     os.makedirs(settings.media_dir, exist_ok=True)
     app.mount(
         settings.media_url_prefix,

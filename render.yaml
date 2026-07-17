@@ -12,7 +12,7 @@
 #     * No torch: embeddings come from a hosted API (Google Gemini). The
 #       backend fits the free 512 MB RAM limit.
 #     * No persistent disk: vectors live in Postgres (pgvector, on Neon) and
-#       image bytes live in Cloudflare R2. The free tier has no disks.
+#       image bytes live in Supabase Storage (S3-compatible). No disks needed.
 #   PostgreSQL is NOT defined here — the app uses Neon (remote), supplied via
 #   DATABASE_URL, which also hosts the pgvector index.
 #
@@ -36,7 +36,7 @@ services:
     autoDeploy: true             # Redeploy automatically on every push to the branch.
 
     # NOTE: no `disk:` block. The free tier does not support persistent disks,
-    # and nothing needs one anymore — vectors are in Postgres and images in R2.
+    # and nothing needs one anymore — vectors are in Postgres and images in S3.
 
     envVars:
       # --- Secrets: set these in the Render dashboard, never commit them. ---
@@ -54,21 +54,23 @@ services:
       - key: CORS_ORIGINS
         sync: false
 
-      # --- Cloudflare R2 (image storage) — secrets set in the dashboard. ---
-      - key: R2_ENDPOINT_URL        # https://<account_id>.r2.cloudflarestorage.com
+      # --- S3-compatible image storage (Supabase) — secrets in dashboard. ---
+      - key: S3_ENDPOINT_URL        # Supabase: https://<project_ref>.supabase.co/storage/v1/s3
         sync: false
-      - key: R2_ACCESS_KEY_ID
+      - key: S3_ACCESS_KEY_ID       # Supabase Storage -> S3 Access Keys
         sync: false
-      - key: R2_SECRET_ACCESS_KEY
+      - key: S3_SECRET_ACCESS_KEY
         sync: false
-      - key: R2_BUCKET              # The R2 bucket name.
+      - key: S3_BUCKET              # The (public) bucket name.
         sync: false
-      - key: R2_PUBLIC_BASE_URL     # Public read URL, e.g. https://<hash>.r2.dev  (or a custom domain)
+      - key: S3_PUBLIC_BASE_URL     # https://<project_ref>.supabase.co/storage/v1/object/public/<bucket>
         sync: false
 
       # --- Non-secret config (safe to keep in the Blueprint). ---
-      - key: IMAGE_STORAGE_BACKEND  # Use R2 in production (free tier has no disk).
-        value: r2
+      - key: IMAGE_STORAGE_BACKEND  # Use S3 in production (free tier has no disk).
+        value: s3
+      - key: S3_REGION              # Your Supabase project region (Storage settings), e.g. us-east-1.
+        value: us-east-1
       - key: EMBEDDING_BASE_URL     # Gemini's OpenAI-compatible endpoint.
         value: https://generativelanguage.googleapis.com/v1beta/openai/
       - key: EMBEDDING_MODEL

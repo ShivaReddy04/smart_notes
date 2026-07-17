@@ -10,10 +10,11 @@ Why this file exists:
     Two backends, one interface:
         * LocalImageStorage -> bytes on local disk under `media_dir`, served by
           StaticFiles. Used in development.
-        * R2ImageStorage    -> bytes in Cloudflare R2 (S3-compatible) object
-          storage via boto3. Used in production, because the free tier has no
-          persistent disk. Objects are read publicly straight from R2's CDN;
-          the API never proxies image bytes.
+        * S3ImageStorage    -> bytes in any S3-compatible object storage via
+          boto3 (Supabase Storage, Cloudflare R2, AWS S3, MinIO). Used in
+          production, because the free tier has no persistent disk. Objects are
+          read publicly straight from the provider's CDN; the API never proxies
+          image bytes.
     `get_image_storage_service()` picks the backend from Settings, so callers
     just depend on the abstract ImageStorageService.
 
@@ -134,18 +135,20 @@ class LocalImageStorage(ImageStorageService):
             logger.exception("Failed to delete image file %s", filename)
 
 
-class R2ImageStorage(ImageStorageService):
-    """Stores image bytes in Cloudflare R2 (S3-compatible) via boto3.
+class S3ImageStorage(ImageStorageService):
+    """Stores image bytes in any S3-compatible object storage via boto3.
 
-    R2 speaks the S3 API, so a standard boto3 S3 client works once pointed at
-    the account endpoint. The client is built once and reused. Public reads
-    happen directly against the bucket's public URL (built by the schema), so
-    this class only ever writes and deletes.
+    Works with Supabase Storage, Cloudflare R2, AWS S3, MinIO — they all speak
+    the S3 API, so a standard boto3 S3 client works once pointed at the
+    provider's endpoint + region. The client is built once and reused. Public
+    reads happen directly against the bucket's public URL (built by the schema),
+    so this class only ever writes and deletes.
     """
 
     def __init__(
         self,
         endpoint_url: str,
+        region: str,
         access_key_id: str,
         secret_access_key: str,
         bucket: str,
@@ -153,7 +156,7 @@ class R2ImageStorage(ImageStorageService):
         max_bytes: int,
     ) -> None:
         super().__init__(allowed_types, max_bytes)
-        # Imported lazily so the (heavier) boto3 import is only paid when the R2
+        # Imported lazily so the (heavier) boto3 import is only paid when the S3
         # backend is actually selected, keeping local/dev startup light.
         import boto3
 
@@ -163,9 +166,9 @@ class R2ImageStorage(ImageStorageService):
             endpoint_url=endpoint_url,
             aws_access_key_id=access_key_id,
             aws_secret_access_key=secret_access_key,
-            # R2 ignores AWS regions but the S3 client requires a value;
-            # "auto" is R2's documented placeholder.
-            region_name="auto",
+            # Supabase/AWS validate the region; R2 ignores it but the S3 client
+            # still requires a value (use "auto" for R2).
+            region_name=region,
         )
 
     def _write(self, data: bytes, filename: str, content_type: str) -> None:
@@ -179,31 +182,32 @@ class R2ImageStorage(ImageStorageService):
         )
 
     def delete(self, filename: str) -> None:
-        """Delete an object by key. S3/R2 delete is already idempotent (a
-        missing key is not an error), but we still log+swallow any transport
-        error so a storage hiccup cannot block the row deletion above us."""
+        """Delete an object by key. S3 delete is already idempotent (a missing
+        key is not an error), but we still log+swallow any transport error so a
+        storage hiccup cannot block the row deletion above us."""
         try:
             self._client.delete_object(Bucket=self._bucket, Key=filename)
         except Exception:  # noqa: BLE001 — best-effort, mirrors the local backend
-            logger.exception("Failed to delete R2 object %s", filename)
+            logger.exception("Failed to delete S3 object %s", filename)
 
 
 @lru_cache
 def get_image_storage_service() -> ImageStorageService:
     """Return a cached ImageStorageService chosen from Settings.
 
-    Cached so the backend (and, for R2, its boto3 client / for local, its
+    Cached so the backend (and, for S3, its boto3 client / for local, its
     directory) is built once and reused across requests. The backend is
-    selected by `image_storage_backend`: "r2" in production, "local" otherwise.
+    selected by `image_storage_backend`: "s3" in production, "local" otherwise.
     """
     settings = get_settings()
-    if settings.image_storage_backend == "r2":
-        logger.info("Using R2 image storage (bucket=%s)", settings.r2_bucket)
-        return R2ImageStorage(
-            endpoint_url=settings.r2_endpoint_url,
-            access_key_id=settings.r2_access_key_id,
-            secret_access_key=settings.r2_secret_access_key,
-            bucket=settings.r2_bucket,
+    if settings.image_storage_backend == "s3":
+        logger.info("Using S3 image storage (bucket=%s)", settings.s3_bucket)
+        return S3ImageStorage(
+            endpoint_url=settings.s3_endpoint_url,
+            region=settings.s3_region,
+            access_key_id=settings.s3_access_key_id,
+            secret_access_key=settings.s3_secret_access_key,
+            bucket=settings.s3_bucket,
             allowed_types=settings.allowed_image_types,
             max_bytes=settings.max_image_bytes,
         )

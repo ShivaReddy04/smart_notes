@@ -13,7 +13,7 @@ pinned: false
     * sdk: docker   -> HF builds and runs the Dockerfile in this repo.
     * app_port: 8000 -> HF exposes the port uvicorn listens on (see Dockerfile CMD),
                         instead of the HF default of 7860.
-  Secrets (DATABASE_URL, OPENROUTER_API_KEY, EMBEDDING_API_KEY, the R2_* vars,
+  Secrets (DATABASE_URL, OPENROUTER_API_KEY, EMBEDDING_API_KEY, the S3_* vars,
   CORS_ORIGINS) are NOT set here — add them in the Space's Settings -> Variables
   and secrets; HF injects them as env vars at runtime. This block is ignored by
   GitHub/Render, so the repo works in all three places.
@@ -99,7 +99,7 @@ ai-smart-notes/
 │   ├── services/
 │   │   ├── note_service.py     # Notes business logic (AI + vector hooks)
 │   │   ├── note_embedding_service.py # Best-effort note → vector sync
-│   │   ├── image_storage_service.py  # Local-disk / Cloudflare R2 image bytes
+│   │   ├── image_storage_service.py  # Local-disk / S3 (Supabase) image bytes
 │   │   ├── note_image_service.py     # Image use-cases (file + row consistency)
 │   │   └── task_service.py     # Tasks business logic
 │   ├── utils/
@@ -138,8 +138,9 @@ ai-smart-notes/
   **Google Gemini** (free); get a key at
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Embeddings
   are called over HTTP (no local model, no torch), so nothing heavy is installed.
-- **(Optional) Cloudflare R2** — only needed to store note-image uploads in the
-  cloud (`IMAGE_STORAGE_BACKEND=r2`). Local dev defaults to disk and needs none.
+- **(Optional) Supabase Storage** (or any S3-compatible provider) — only needed
+  to store note-image uploads in the cloud (`IMAGE_STORAGE_BACKEND=s3`). Local
+  dev defaults to disk and needs none.
 
 ---
 
@@ -184,9 +185,10 @@ The AI, vector, and storage tunables (all overridable, never hardcoded):
 | `EMBEDDING_MODEL` | `text-embedding-004` | Hosted embedding model |
 | `EMBEDDING_DIMENSIONS` | `768` | Vector width — **must match** the `note_embeddings` column |
 | `SEARCH_TOP_K` | `5` | Default number of search results |
-| `IMAGE_STORAGE_BACKEND` | `local` | `local` (disk) or `r2` (Cloudflare R2) |
+| `IMAGE_STORAGE_BACKEND` | `local` | `local` (disk) or `s3` (Supabase/R2/S3) |
 | `MEDIA_DIR` | `./media` | Local image dir (when backend is `local`) |
-| `R2_ENDPOINT_URL` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_PUBLIC_BASE_URL` | — | R2 config (when backend is `r2`) |
+| `S3_REGION` | `us-east-1` | Storage region (Supabase project region; `auto` for R2) |
+| `S3_ENDPOINT_URL` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` / `S3_PUBLIC_BASE_URL` | — | S3 config (when backend is `s3`) |
 
 > **Vector dimensions:** `EMBEDDING_DIMENSIONS` must equal the `vector(N)` column
 > width created by migration `0004` (768 for Gemini `text-embedding-004`).
@@ -229,7 +231,7 @@ things that used to require paid resources were removed by design:
 - **No torch** — embeddings are a hosted API call (Gemini), so the API fits the
   free **512 MB RAM** limit.
 - **No persistent disk** — vectors live in Postgres (`pgvector`, on Neon) and
-  image bytes live in **Cloudflare R2**. The free tier has no disks.
+  image bytes live in **Supabase Storage** (S3-compatible). The free tier has no disks.
 - **Free static frontend** — the React SPA is served from Render's CDN.
 
 Everything is declared in **`render.yaml`** (a Render Blueprint): one Docker
@@ -238,14 +240,14 @@ Everything is declared in **`render.yaml`** (a Render Blueprint): one Docker
 ### Steps
 
 1. **Get credentials:** a free [Gemini key](https://aistudio.google.com/apikey)
-   (embeddings) and a [Cloudflare R2](https://developers.cloudflare.com/r2/)
-   bucket + API token with public read enabled (images). Your Neon
-   `DATABASE_URL` and OpenRouter key you already have.
+   (embeddings) and a [Supabase](https://supabase.com) project with a **public**
+   Storage bucket + **S3 Access Keys** (Storage → S3 Access Keys) for images.
+   Your Neon `DATABASE_URL` and OpenRouter key you already have.
 2. **Push to GitHub**, then in Render: **New + → Blueprint →** pick this repo.
    It reads `render.yaml` and provisions both services.
 3. On the **api** service, set the secret env vars (marked `sync:false` in the
    Blueprint): `DATABASE_URL`, `OPENROUTER_API_KEY`, `EMBEDDING_API_KEY`, the
-   five `R2_*` vars, and `CORS_ORIGINS`.
+   five `S3_*` vars, and `CORS_ORIGINS` (`S3_REGION` is preset in the Blueprint).
 4. On the **web** service, set `VITE_API_BASE_URL` to the api URL **+ `/api/v1`**
    (e.g. `https://<api>.onrender.com/api/v1`). Then set `CORS_ORIGINS` on the api
    to the web origin (JSON array) and redeploy.
@@ -269,7 +271,7 @@ docker compose up --build
 - **API docs:** http://localhost:8000/docs
 
 The `api` container runs migrations on startup. A single `media` named volume
-persists local-disk image uploads (unused if you set `IMAGE_STORAGE_BACKEND=r2`);
+persists local-disk image uploads (unused if you set `IMAGE_STORAGE_BACKEND=s3`);
 vectors are in Postgres, so there is no vector volume. `docker compose down`
 keeps the volume; `-v` deletes it.
 
@@ -617,8 +619,8 @@ HTTP/1.1 404 Not Found
 ## What's next (later phases)
 
 Phases 1–5 are built: CRUD, AI categorization/priority, semantic search
-(pgvector), chat-with-notes / RAG, a React frontend, image attachments (R2), and
-free-tier Render deployment. Remaining polish:
+(pgvector), chat-with-notes / RAG, a React frontend, image attachments
+(Supabase Storage), and free-tier Render deployment. Remaining polish:
 
 - **Production hardening:** background/queued embedding for high write volume,
   caching, and batching of embedding calls.

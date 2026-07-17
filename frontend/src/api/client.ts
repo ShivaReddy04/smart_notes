@@ -39,9 +39,10 @@ const API_ORIGIN = BASE_URL.replace(/\/api\/v\d+\/?$/, '')
 /**
  * Turn a note image's `url` into an absolute, loadable URL.
  *
- * The backend returns either an absolute URL (the R2 backend, e.g.
- * 'https://…r2.dev/abc.png') or a server-relative path (the local backend,
- * '/media/abc.png'). An already-absolute URL is returned unchanged; only a
+ * The backend returns either an absolute URL (the S3 backend — Supabase/R2,
+ * e.g. 'https://…supabase.co/storage/v1/object/public/bucket/abc.png') or a
+ * server-relative path (the local backend, '/media/abc.png'). An
+ * already-absolute URL is returned unchanged; only a
  * relative path is prefixed with the API origin. This lets the same frontend
  * work against either storage backend with no build-time switch.
  */
