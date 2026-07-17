@@ -77,8 +77,8 @@ services:
         value: gemini-embedding-001
       - key: EMBEDDING_DIMENSIONS   # MUST match the pgvector column in migration 0004.
         value: "768"
-      - key: OPENROUTER_MODEL
-        value: openai/gpt-4o-mini
+      - key: OPENROUTER_MODEL      # A FREE OpenRouter model (no credits needed).
+        value: google/gemma-4-26b-a4b-it:free
       - key: DEBUG
         value: "false"
 
