@@ -38,14 +38,20 @@ class TaskRepository:
         return task
 
     # --- Read ---------------------------------------------------------
-    def get_by_id(self, task_id: int) -> Task | None:
-        """Return the task with this id, or None if it does not exist."""
-        return self._session.get(Task, task_id)
+    def get_by_id(self, task_id: int, user_id: int) -> Task | None:
+        """Return the task with this id IF it belongs to `user_id`, else None.
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> list[Task]:
-        """Return a page of tasks, newest first, with offset pagination."""
+        Scoping by owner enforces isolation: another user's task (or a missing
+        id) reads as None, becoming a 404 upstream that never reveals it.
+        """
+        statement = select(Task).where(Task.id == task_id, Task.user_id == user_id)
+        return self._session.execute(statement).scalar_one_or_none()
+
+    def get_all(self, user_id: int, skip: int = 0, limit: int = 100) -> list[Task]:
+        """Return a page of the OWNER's tasks, newest first, with pagination."""
         statement = (
             select(Task)
+            .where(Task.user_id == user_id)
             .order_by(Task.created_at.desc())
             .offset(skip)
             .limit(limit)

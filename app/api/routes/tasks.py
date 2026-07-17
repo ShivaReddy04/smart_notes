@@ -20,7 +20,9 @@ Why this file exists:
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.models.user import User
 from app.repositories.task_repository import TaskRepository
 from app.schemas.task import TaskCreate, TaskResponse, TaskStatusUpdate, TaskUpdate
 from app.services.task_service import TaskService
@@ -28,9 +30,18 @@ from app.services.task_service import TaskService
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 
-def get_task_service(db: Session = Depends(get_db)) -> TaskService:
-    """Assemble a request-scoped TaskService (get_db -> repo -> service)."""
-    return TaskService(TaskRepository(db))
+def get_task_service(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TaskService:
+    """Assemble a request-scoped, user-scoped TaskService.
+
+    Resolves the DB session and authenticates the bearer token, so every tasks
+    route requires a valid login (401 without one) and is bound to the owner.
+    NOTE: the chat route reuses this dependency, so chat's task context is
+    automatically scoped to the current user too.
+    """
+    return TaskService(TaskRepository(db), user_id=current_user.id)
 
 
 @router.post(

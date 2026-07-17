@@ -23,18 +23,23 @@ from app.utils.exceptions import NotFoundError
 class TaskService:
     """Use-case logic for tasks."""
 
-    def __init__(self, repository: TaskRepository) -> None:
-        """Inject the repository to decouple the service from storage."""
+    def __init__(self, repository: TaskRepository, user_id: int) -> None:
+        """Inject the repository (storage) and the authenticated owner.
+
+        `user_id` scopes every read and stamps every created task, so one
+        account can never see or touch another's tasks (Phase 6).
+        """
         self._repository = repository
+        self._user_id = user_id
 
     # --- Internal helper ---------------------------------------------
     def _get_or_404(self, task_id: int) -> Task:
-        """Fetch a task by id or raise NotFoundError (→ HTTP 404).
+        """Fetch the OWNER's task by id or raise NotFoundError (→ HTTP 404).
 
-        Centralizes the existence check reused by read, update, status
-        change, and delete.
+        Centralizes the existence+ownership check reused by read, update,
+        status change, and delete — another user's task reads as 404.
         """
-        task = self._repository.get_by_id(task_id)
+        task = self._repository.get_by_id(task_id, self._user_id)
         if task is None:
             raise NotFoundError("Task", task_id)
         return task
@@ -47,7 +52,7 @@ class TaskService:
         `status` is omitted on purpose, so the database default ('Pending')
         applies; id and timestamps are server-owned.
         """
-        task = Task(**data.model_dump())
+        task = Task(**data.model_dump(), user_id=self._user_id)
         return self._repository.create(task)
 
     def get_task(self, task_id: int) -> Task:
@@ -55,8 +60,8 @@ class TaskService:
         return self._get_or_404(task_id)
 
     def list_tasks(self, skip: int = 0, limit: int = 100) -> list[Task]:
-        """Return a paginated list of tasks (newest first)."""
-        return self._repository.get_all(skip=skip, limit=limit)
+        """Return a paginated list of the owner's tasks (newest first)."""
+        return self._repository.get_all(self._user_id, skip=skip, limit=limit)
 
     def update_task(self, task_id: int, data: TaskUpdate) -> Task:
         """Apply a partial update (title/description/due_date) to a task.
