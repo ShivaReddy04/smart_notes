@@ -159,6 +159,7 @@ class S3ImageStorage(ImageStorageService):
         # Imported lazily so the (heavier) boto3 import is only paid when the S3
         # backend is actually selected, keeping local/dev startup light.
         import boto3
+        from botocore.config import Config
 
         self._bucket = bucket
         self._client = boto3.client(
@@ -169,6 +170,10 @@ class S3ImageStorage(ImageStorageService):
             # Supabase/AWS validate the region; R2 ignores it but the S3 client
             # still requires a value (use "auto" for R2).
             region_name=region,
+            # Force PATH-style addressing (endpoint/bucket/key). Supabase Storage
+            # and MinIO only support path-style; boto3 otherwise defaults to
+            # virtual-host style (bucket.endpoint), which fails against them.
+            config=Config(s3={"addressing_style": "path"}),
         )
 
     def _write(self, data: bytes, filename: str, content_type: str) -> None:
