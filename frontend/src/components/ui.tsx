@@ -19,6 +19,7 @@ import type {
   HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
+  Ref,
   SVGProps,
   TextareaHTMLAttributes,
 } from 'react'
@@ -271,16 +272,20 @@ const FIELD_BASE =
 
 export function Input({
   className,
+  ref,
   ...props
-}: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(FIELD_BASE, className)} {...props} />
+}: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+  return <input ref={ref} className={cn(FIELD_BASE, className)} {...props} />
 }
 
 export function Textarea({
   className,
+  ref,
   ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn(FIELD_BASE, 'resize-y', className)} {...props} />
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  ref?: Ref<HTMLTextAreaElement>
+}) {
+  return <textarea ref={ref} className={cn(FIELD_BASE, 'resize-y', className)} {...props} />
 }
 
 /* --------------------------------------------------------------------------

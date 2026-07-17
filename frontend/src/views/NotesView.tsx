@@ -2,20 +2,40 @@
  *
  * The Notes feature screen. Responsibilities:
  *   * Load and list notes (the backend returns them pinned-first, newest-first).
- *   * Create a note (title required, content optional).
+ *   * Create a note, or EDIT an existing one — the same top form does both: the
+ *     "Edit" action on a card loads that note into the form, which switches to
+ *     "Update" mode until saved or cancelled.
  *   * Pin/unpin and delete a note.
+ *   * Attach / remove images.
  *   * Show each note's AI-assigned category + priority as badges.
  *
  * All I/O goes through `notesApi`; this component only orchestrates state and
- * rendering. After a mutation we reload the list so the server's ordering stays
- * authoritative instead of re-sorting on the client. Failures surface the
- * backend's `detail` message via the `ApiError` thrown by the client. */
+ * rendering, and uses the shared UI kit (components/ui) so it matches the rest
+ * of the app in both light and dark themes. After a mutation we reload the list
+ * so the server's ordering stays authoritative. Failures surface the backend's
+ * `detail` message via the `ApiError` thrown by the client. */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { mediaUrl, notesApi } from '../api/client'
 import type { Note, NoteImage } from '../api/types'
 import { CategoryBadge, PriorityBadge } from '../components/badges'
+import {
+  Button,
+  Card,
+  EmptyState,
+  IconButton,
+  IconClose,
+  IconEdit,
+  IconImage,
+  IconNote,
+  IconPin,
+  IconPlus,
+  IconTrash,
+  Input,
+  Textarea,
+  cn,
+} from '../components/ui'
 import { errorMessage } from '../lib/errors'
 
 function NotesView() {
@@ -23,13 +43,22 @@ function NotesView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Shared form state. `editingId` decides create-vs-update: null = creating a
+  // new note, a number = editing that note.
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
 
   // Which note is currently uploading an image (disables its control + shows a
   // spinner label). null when no upload is in flight.
   const [uploadingId, setUploadingId] = useState<number | null>(null)
+
+  // Refs so entering edit mode can scroll the form into view and focus it.
+  const formRef = useRef<HTMLDivElement>(null)
+  const titleRef = useRef<HTMLInputElement>(null)
+
+  const isEditing = editingId !== null
 
   async function load() {
     setLoading(true)
@@ -48,18 +77,41 @@ function NotesView() {
     void load()
   }, [])
 
-  async function handleCreate(event: React.FormEvent) {
+  /** Enter edit mode: copy the note into the form, then reveal + focus it. */
+  function startEdit(note: Note) {
+    setEditingId(note.id)
+    setTitle(note.title)
+    setContent(note.content ?? '')
+    setError(null)
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // Focus after the scroll/paint so the caret lands in the title field.
+    requestAnimationFrame(() => titleRef.current?.focus())
+  }
+
+  /** Leave edit mode and clear the form back to "new note". */
+  function resetForm() {
+    setEditingId(null)
+    setTitle('')
+    setContent('')
+  }
+
+  /** Create a new note or save edits to an existing one, depending on mode. */
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     if (!title.trim()) return
     setSubmitting(true)
     setError(null)
+    const payload = {
+      title: title.trim(),
+      content: content.trim() ? content.trim() : null,
+    }
     try {
-      await notesApi.create({
-        title: title.trim(),
-        content: content.trim() ? content.trim() : null,
-      })
-      setTitle('')
-      setContent('')
+      if (editingId !== null) {
+        await notesApi.update(editingId, payload)
+      } else {
+        await notesApi.create(payload)
+      }
+      resetForm()
       await load()
     } catch (err) {
       setError(errorMessage(err))
@@ -82,6 +134,8 @@ function NotesView() {
     setError(null)
     try {
       await notesApi.remove(note.id)
+      // If we were editing the note we just deleted, drop out of edit mode.
+      if (editingId === note.id) resetForm()
       setNotes((current) => current.filter((n) => n.id !== note.id))
     } catch (err) {
       setError(errorMessage(err))
@@ -119,148 +173,182 @@ function NotesView() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Create form */}
-      <form
-        onSubmit={handleCreate}
-        className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4"
-      >
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Note title"
-          maxLength={255}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-        />
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Content (optional)"
-          rows={3}
-          className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500"
-        />
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-400">
-            Category &amp; priority are assigned automatically.
+      {/* Create / edit form */}
+      <div ref={formRef}>
+        <Card className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-slate-400 dark:text-slate-500">
+            {isEditing ? <IconEdit className="h-4 w-4" /> : <IconPlus className="h-4 w-4" />}
           </span>
-          <button
-            type="submit"
-            disabled={submitting || !title.trim()}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {submitting ? 'Adding…' : 'Add note'}
-          </button>
+          <h2 className="text-sm font-semibold">{isEditing ? 'Edit note' : 'New note'}</h2>
+          {isEditing && (
+            <span className="rounded-full bg-accent-50 px-2 py-0.5 text-xs font-medium text-accent-700 dark:bg-accent-500/10 dark:text-accent-300">
+              editing
+            </span>
+          )}
         </div>
-      </form>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <Input
+            ref={titleRef}
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Note title"
+            maxLength={255}
+          />
+          <Textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Content (optional)"
+            rows={3}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              Category &amp; priority are assigned automatically.
+            </span>
+            <div className="flex items-center gap-2">
+              {isEditing && (
+                <Button type="button" variant="ghost" size="md" onClick={resetForm}>
+                  Cancel
+                </Button>
+              )}
+              <Button type="submit" loading={submitting} disabled={!title.trim()}>
+                {isEditing ? 'Save changes' : 'Add note'}
+              </Button>
+            </div>
+          </div>
+        </form>
+        </Card>
+      </div>
 
       {/* Error banner */}
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </div>
       )}
 
       {/* List */}
       {loading ? (
-        <p className="text-sm text-slate-400">Loading notes…</p>
+        <p className="text-sm text-slate-400 dark:text-slate-500">Loading notes…</p>
       ) : notes.length === 0 ? (
-        <p className="text-sm text-slate-400">No notes yet. Add your first one above.</p>
+        <EmptyState
+          icon={<IconNote className="h-8 w-8" />}
+          title="No notes yet"
+          hint="Add your first note above — AI will categorize it for you."
+        />
       ) : (
         <ul className="flex flex-col gap-3">
-          {notes.map((note) => (
-            <li
-              key={note.id}
-              className="rounded-lg border border-slate-200 bg-white p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    {note.is_pinned && (
-                      <span title="Pinned" className="text-indigo-500">
-                        ●
-                      </span>
-                    )}
-                    <h3 className="truncate font-medium">{note.title}</h3>
-                  </div>
-                  {note.content && (
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
-                      {note.content}
-                    </p>
+          {notes.map((note) => {
+            const isBeingEdited = editingId === note.id
+            return (
+              <li key={note.id}>
+                <Card
+                  className={cn(
+                    'p-4 transition-shadow hover:shadow-md',
+                    isBeingEdited && 'ring-2 ring-accent-500/60',
                   )}
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <CategoryBadge category={note.category} />
-                    <PriorityBadge priority={note.priority} />
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handlePin(note)}
-                    className="text-xs font-medium text-slate-500 hover:text-indigo-700"
-                  >
-                    {note.is_pinned ? 'Unpin' : 'Pin'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(note)}
-                    className="text-xs font-medium text-slate-500 hover:text-red-600"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-
-              {/* Attached images: thumbnails (click to open full size) + an
-                  add-image tile. Each thumbnail has a hover ✕ to remove it. */}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {note.images.map((img) => (
-                  <div key={img.id} className="group relative">
-                    <a
-                      href={mediaUrl(img.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={img.original_name}
-                    >
-                      <img
-                        src={mediaUrl(img.url)}
-                        alt={img.original_name}
-                        className="h-20 w-20 rounded-md border border-slate-200 object-cover"
-                      />
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteImage(note, img)}
-                      title="Remove image"
-                      className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs font-bold leading-none text-white group-hover:flex"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                <label
-                  className={
-                    'flex h-20 w-20 flex-col items-center justify-center rounded-md border border-dashed text-center text-xs transition-colors ' +
-                    (uploadingId === note.id
-                      ? 'cursor-wait border-slate-200 text-slate-300'
-                      : 'cursor-pointer border-slate-300 text-slate-400 hover:border-indigo-400 hover:text-indigo-500')
-                  }
                 >
-                  {uploadingId === note.id ? 'Uploading…' : '＋ Image'}
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    multiple
-                    disabled={uploadingId === note.id}
-                    onChange={(e) => {
-                      void handleUploadImages(note, e.target.files)
-                      e.target.value = '' // allow re-picking the same file
-                    }}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            </li>
-          ))}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        {note.is_pinned && (
+                          <span
+                            title="Pinned"
+                            className="text-accent-500 dark:text-accent-400"
+                          >
+                            <IconPin className="h-3.5 w-3.5" />
+                          </span>
+                        )}
+                        <h3 className="truncate font-medium">{note.title}</h3>
+                      </div>
+                      {note.content && (
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
+                          {note.content}
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <CategoryBadge category={note.category} />
+                        <PriorityBadge priority={note.priority} />
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <IconButton label="Edit note" onClick={() => startEdit(note)}>
+                        <IconEdit className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton
+                        label={note.is_pinned ? 'Unpin note' : 'Pin note'}
+                        variant={note.is_pinned ? 'active' : 'ghost'}
+                        onClick={() => handlePin(note)}
+                      >
+                        <IconPin className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton
+                        label="Delete note"
+                        variant="danger"
+                        onClick={() => handleDelete(note)}
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </IconButton>
+                    </div>
+                  </div>
+
+                  {/* Attached images: thumbnails (click to open full size) + an
+                      add-image tile. Each thumbnail has a hover ✕ to remove it. */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {note.images.map((img) => (
+                      <div key={img.id} className="group relative">
+                        <a
+                          href={mediaUrl(img.url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={img.original_name}
+                        >
+                          <img
+                            src={mediaUrl(img.url)}
+                            alt={img.original_name}
+                            className="h-20 w-20 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
+                          />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteImage(note, img)}
+                          title="Remove image"
+                          aria-label="Remove image"
+                          className="absolute -right-1.5 -top-1.5 hidden h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white shadow group-hover:flex"
+                        >
+                          <IconClose className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    <label
+                      className={cn(
+                        'flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-center text-xs transition-colors',
+                        uploadingId === note.id
+                          ? 'cursor-wait border-slate-200 text-slate-300 dark:border-slate-700 dark:text-slate-600'
+                          : 'cursor-pointer border-slate-300 text-slate-400 hover:border-accent-400 hover:text-accent-500 dark:border-slate-700 dark:text-slate-500 dark:hover:border-accent-500 dark:hover:text-accent-400',
+                      )}
+                    >
+                      <IconImage className="h-4 w-4" />
+                      {uploadingId === note.id ? 'Uploading…' : 'Image'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        multiple
+                        disabled={uploadingId === note.id}
+                        onChange={(e) => {
+                          void handleUploadImages(note, e.target.files)
+                          e.target.value = '' // allow re-picking the same file
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </Card>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>
