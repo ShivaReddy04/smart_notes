@@ -79,3 +79,57 @@ def build_categorization_prompt(format_instructions: str) -> ChatPromptTemplate:
         ]
     )
     return prompt.partial(format_instructions=format_instructions)
+
+
+# --- Task extraction (suggest tasks from a note) ---------------------
+# Same shape as categorization: a system prompt with rules + escaped-brace
+# few-shot examples and a {format_instructions} slot, plus a human message
+# carrying only {note_text}. The examples teach the model to (a) return ONLY
+# actionable to-dos, and (b) return an empty list when a note is not actionable.
+TASK_EXTRACTION_SYSTEM_PROMPT = """You extract concrete, actionable to-do tasks \
+from a personal note.
+
+Rules:
+- Return ONLY items that are something to DO — a concrete action the writer \
+needs to take.
+- Ignore ideas, opinions, facts, feelings, and anything already done.
+- Each task has a short imperative title (start with a verb) and an optional \
+one-line description carrying any useful detail from the note (deadline, who, \
+where). Use null for the description when there is nothing to add.
+- If the note contains no actionable tasks, return an empty list.
+- Respond with a single JSON object ONLY. No prose, no explanations, no \
+markdown code fences.
+
+Examples:
+Note: "Meeting with Sarah went well. Need to send her the report and book a \
+follow-up for next week."
+{{"tasks": [{{"title": "Send Sarah the report", "description": null}}, \
+{{"title": "Book a follow-up meeting with Sarah", "description": "For next week"}}]}}
+
+Note: "Some thoughts about a new app idea that uses AI to suggest recipes."
+{{"tasks": []}}
+
+Note: "Groceries: milk and eggs. Also pay the electricity bill before Friday."
+{{"tasks": [{{"title": "Buy groceries", "description": "Milk and eggs"}}, \
+{{"title": "Pay the electricity bill", "description": "Before Friday"}}]}}
+
+{format_instructions}"""
+
+TASK_EXTRACTION_HUMAN_PROMPT = 'Note: "{note_text}"'
+
+
+def build_task_extraction_prompt(format_instructions: str) -> ChatPromptTemplate:
+    """Assemble the task-extraction prompt with the parser's format
+    instructions baked in.
+
+    Mirrors build_categorization_prompt: `format_instructions` (from the
+    TaskSuggestionList parser) is filled once via `.partial`, leaving only
+    `note_text` per request.
+    """
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", TASK_EXTRACTION_SYSTEM_PROMPT),
+            ("human", TASK_EXTRACTION_HUMAN_PROMPT),
+        ]
+    )
+    return prompt.partial(format_instructions=format_instructions)

@@ -22,11 +22,13 @@ from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.ai.categorizer import get_categorizer
+from app.ai.task_extractor import get_task_extractor
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.user import User
 from app.repositories.note_repository import NoteRepository
 from app.schemas.note import NoteCreate, NoteResponse, NoteUpdate
+from app.schemas.task import TaskSuggestion
 from app.services.note_embedding_service import get_note_embedding_service
 from app.services.note_service import NoteService
 
@@ -52,6 +54,7 @@ def get_note_service(
         NoteRepository(db),
         get_categorizer(),
         get_note_embedding_service(),
+        get_task_extractor(),
         user_id=current_user.id,
     )
 
@@ -136,3 +139,21 @@ def delete_note(
 ) -> None:
     """Delete a note by id (404 if missing). Returns no content on success."""
     service.delete_note(note_id)
+
+
+@router.post(
+    "/{note_id}/suggest-tasks",
+    response_model=list[TaskSuggestion],
+    summary="Suggest to-do tasks from a note (AI)",
+)
+def suggest_tasks(
+    note_id: int,
+    service: NoteService = Depends(get_note_service),
+) -> list[TaskSuggestion]:
+    """Return AI-suggested tasks drawn from the note's text.
+
+    The suggestions are DRAFTS — nothing is created. The client lets the user
+    pick which to keep and creates them via POST /tasks. 404 if the note is
+    missing or not owned by the caller; an empty list means no actionable items.
+    """
+    return service.suggest_tasks(note_id)

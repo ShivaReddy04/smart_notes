@@ -120,6 +120,12 @@ export interface TaskStatusUpdate {
   status: TaskStatus
 }
 
+/** An AI-suggested task drawn from a note (TaskSuggestion) — a draft, not saved. */
+export interface TaskSuggestion {
+  title: string
+  description: string | null
+}
+
 /* ---- Auth (mirror app/schemas/user.py) ----------------------------------- */
 
 /** Request body for POST /auth/register and /auth/login. */

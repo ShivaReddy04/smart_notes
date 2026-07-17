@@ -126,3 +126,42 @@ class TaskResponse(TaskBase):
     status: TaskStatus = Field(description="Current status of the task.")
     created_at: datetime = Field(description="When the task was created (UTC-aware).")
     updated_at: datetime = Field(description="When the task was last updated (UTC-aware).")
+
+
+class TaskSuggestion(BaseModel):
+    """One AI-suggested task extracted from a note — a DRAFT, not persisted.
+
+    This same model is both the LLM's structured-output target (via
+    PydanticOutputParser) and the API response item, so the "extract tasks"
+    endpoint returns exactly what the model produced. The client turns the ones
+    the user picks into real tasks via the normal POST /tasks (TaskCreate), so a
+    suggestion carries only the fields those share.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(
+        min_length=1,
+        max_length=255,
+        description="Short, imperative task title.",
+        examples=["Email the advisor about the deadline"],
+    )
+    description: str | None = Field(
+        default=None,
+        description="Optional one-line detail for the task.",
+        examples=["Confirm whether the Friday cutoff is firm"],
+    )
+
+
+class TaskSuggestionList(BaseModel):
+    """Wrapper the LLM returns so its output is a JSON OBJECT, not a bare array.
+
+    A top-level object (`{"tasks": [...]}`) is more reliable to prompt for and
+    to parse across models than a bare list. `tasks` is empty when the note has
+    no actionable items.
+    """
+
+    tasks: list[TaskSuggestion] = Field(
+        default_factory=list,
+        description="Extracted task suggestions; empty if the note has none.",
+    )

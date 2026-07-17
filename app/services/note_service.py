@@ -22,9 +22,11 @@ Why this file exists:
 """
 
 from app.ai.categorizer import NoteCategorizer
+from app.ai.task_extractor import TaskExtractor
 from app.models.note import Note
 from app.repositories.note_repository import NoteRepository
 from app.schemas.note import NoteCreate, NoteUpdate
+from app.schemas.task import TaskSuggestion
 from app.services.note_embedding_service import NoteEmbeddingService
 from app.utils.exceptions import NotFoundError
 
@@ -37,6 +39,7 @@ class NoteService:
         repository: NoteRepository,
         categorizer: NoteCategorizer,
         note_embedding_service: NoteEmbeddingService,
+        task_extractor: TaskExtractor,
         user_id: int,
     ) -> None:
         """Inject collaborators so the service is decoupled from concrete
@@ -46,6 +49,7 @@ class NoteService:
           * `note_embedding_service` -> best-effort sync of the note into the
             vector index. It never raises, so semantic-search indexing can
             never break a CRUD operation (Feature 7).
+          * `task_extractor`         -> suggests to-do tasks from a note's text.
           * `user_id`                -> the authenticated owner. Every read is
             scoped to it and every created note is stamped with it, so one
             account can never see or touch another's notes (Phase 6).
@@ -53,6 +57,7 @@ class NoteService:
         self._repository = repository
         self._categorizer = categorizer
         self._note_embedding_service = note_embedding_service
+        self._task_extractor = task_extractor
         self._user_id = user_id
 
     # --- AI helpers ---------------------------------------------------
@@ -158,3 +163,16 @@ class NoteService:
         # Best-effort: drop the note's vector from the index. remove_note never
         # raises, so a vector-store failure cannot block the deletion.
         self._note_embedding_service.remove_note(note_id)
+
+    def suggest_tasks(self, note_id: int) -> list[TaskSuggestion]:
+        """Return AI-suggested to-do tasks drawn from the note's text.
+
+        Fetches the OWNER's note (404 if missing or not theirs), then runs the
+        extractor over its title + content. The suggestions are DRAFTS only —
+        nothing is persisted here; the client turns the chosen ones into real
+        tasks via the normal create-task endpoint. Extraction is best-effort:
+        an empty list means "no actionable items" (or a transient AI hiccup),
+        never an error.
+        """
+        note = self._get_or_404(note_id)
+        return self._task_extractor.extract(self._compose_text(note.title, note.content))

@@ -24,6 +24,7 @@ import type {
   Task,
   TaskCreate,
   TaskStatus,
+  TaskSuggestion,
   TaskUpdate,
 } from './types'
 
@@ -179,6 +180,10 @@ export const notesApi = {
   /** Remove one image from a note. */
   removeImage: (noteId: number, imageId: number) =>
     request<void>(`/notes/${noteId}/images/${imageId}`, { method: 'DELETE' }),
+
+  /** Ask the AI to suggest to-do tasks from a note (drafts; nothing is created). */
+  suggestTasks: (noteId: number) =>
+    request<TaskSuggestion[]>(`/notes/${noteId}/suggest-tasks`, { method: 'POST' }),
 }
 
 /* ---- Tasks --------------------------------------------------------------- */

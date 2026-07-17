@@ -17,8 +17,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-import { mediaUrl, notesApi } from '../api/client'
-import type { Note, NoteImage } from '../api/types'
+import { mediaUrl, notesApi, tasksApi } from '../api/client'
+import type { Note, NoteImage, TaskSuggestion } from '../api/types'
 import { CategoryBadge, PriorityBadge } from '../components/badges'
 import {
   Button,
@@ -31,8 +31,10 @@ import {
   IconNote,
   IconPin,
   IconPlus,
+  IconSparkles,
   IconTrash,
   Input,
+  Spinner,
   Textarea,
   cn,
 } from '../components/ui'
@@ -53,6 +55,16 @@ function NotesView() {
   // Which note is currently uploading an image (disables its control + shows a
   // spinner label). null when no upload is in flight.
   const [uploadingId, setUploadingId] = useState<number | null>(null)
+
+  // AI task-extraction state. `extractingId` = the note currently being
+  // analyzed; `suggestNoteId` = the note whose suggestions panel is open, with
+  // `suggestions` + a parallel `selected` mask; `creatingTasks` while saving.
+  const [extractingId, setExtractingId] = useState<number | null>(null)
+  const [suggestNoteId, setSuggestNoteId] = useState<number | null>(null)
+  const [suggestions, setSuggestions] = useState<TaskSuggestion[]>([])
+  const [selected, setSelected] = useState<boolean[]>([])
+  const [creatingTasks, setCreatingTasks] = useState(false)
+  const [createdMessage, setCreatedMessage] = useState<string | null>(null)
 
   // Refs so entering edit mode can scroll the form into view and focus it.
   const formRef = useRef<HTMLDivElement>(null)
@@ -171,6 +183,60 @@ function NotesView() {
     }
   }
 
+  /** Ask the AI to extract tasks from a note and open its suggestions panel. */
+  async function handleExtract(note: Note) {
+    setError(null)
+    setCreatedMessage(null)
+    setExtractingId(note.id)
+    try {
+      const result = await notesApi.suggestTasks(note.id)
+      setSuggestNoteId(note.id)
+      setSuggestions(result)
+      setSelected(result.map(() => true)) // all checked by default
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setExtractingId(null)
+    }
+  }
+
+  function toggleSuggestion(index: number) {
+    setSelected((prev) => prev.map((v, i) => (i === index ? !v : v)))
+  }
+
+  function closeSuggestions() {
+    setSuggestNoteId(null)
+    setSuggestions([])
+    setSelected([])
+  }
+
+  /** Create the checked suggestions as real tasks, then close the panel. */
+  async function handleCreateSelected() {
+    const chosen = suggestions.filter((_, i) => selected[i])
+    if (chosen.length === 0) return
+    setCreatingTasks(true)
+    setError(null)
+    try {
+      for (const suggestion of chosen) {
+        await tasksApi.create({
+          title: suggestion.title,
+          description: suggestion.description,
+          due_date: null,
+        })
+      }
+      setCreatedMessage(
+        `Added ${chosen.length} task${chosen.length === 1 ? '' : 's'} to your Tasks.`,
+      )
+      closeSuggestions()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setCreatingTasks(false)
+    }
+  }
+
+  const selectedCount = selected.filter(Boolean).length
+
   return (
     <div className="flex flex-col gap-6">
       {/* Create / edit form */}
@@ -229,6 +295,21 @@ function NotesView() {
         </div>
       )}
 
+      {/* Task-created confirmation */}
+      {createdMessage && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <span>{createdMessage}</span>
+          <button
+            type="button"
+            onClick={() => setCreatedMessage(null)}
+            aria-label="Dismiss"
+            className="shrink-0 opacity-70 hover:opacity-100"
+          >
+            <IconClose className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* List */}
       {loading ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">Loading notes…</p>
@@ -272,6 +353,19 @@ function NotesView() {
                         <CategoryBadge category={note.category} />
                         <PriorityBadge priority={note.priority} />
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleExtract(note)}
+                        disabled={extractingId === note.id}
+                        className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-accent-600 transition-colors hover:text-accent-500 disabled:opacity-60 dark:text-accent-400"
+                      >
+                        {extractingId === note.id ? (
+                          <Spinner className="h-3.5 w-3.5" />
+                        ) : (
+                          <IconSparkles className="h-3.5 w-3.5" />
+                        )}
+                        {extractingId === note.id ? 'Extracting…' : 'Extract tasks'}
+                      </button>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <IconButton label="Edit note" onClick={() => startEdit(note)}>
@@ -345,6 +439,77 @@ function NotesView() {
                       />
                     </label>
                   </div>
+
+                  {/* AI task suggestions for this note (drafts until created) */}
+                  {suggestNoteId === note.id && (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/40">
+                      {suggestions.length === 0 ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            No actionable tasks found in this note.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={closeSuggestions}
+                            className="text-xs font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                              Suggested tasks
+                            </p>
+                            <IconButton
+                              label="Close suggestions"
+                              onClick={closeSuggestions}
+                            >
+                              <IconClose className="h-4 w-4" />
+                            </IconButton>
+                          </div>
+                          <ul className="flex flex-col gap-1">
+                            {suggestions.map((suggestion, index) => (
+                              <li key={index}>
+                                <label className="flex cursor-pointer items-start gap-2 rounded-md px-1.5 py-1 hover:bg-slate-100 dark:hover:bg-slate-800/60">
+                                  <input
+                                    type="checkbox"
+                                    checked={selected[index] ?? false}
+                                    onChange={() => toggleSuggestion(index)}
+                                    className="mt-0.5 h-4 w-4 shrink-0 accent-accent-600"
+                                  />
+                                  <span className="min-w-0">
+                                    <span className="block text-sm text-slate-800 dark:text-slate-100">
+                                      {suggestion.title}
+                                    </span>
+                                    {suggestion.description && (
+                                      <span className="block text-xs text-slate-500 dark:text-slate-400">
+                                        {suggestion.description}
+                                      </span>
+                                    )}
+                                  </span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="mt-2 flex items-center justify-end gap-2">
+                            <Button size="sm" variant="ghost" onClick={closeSuggestions}>
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              loading={creatingTasks}
+                              disabled={selectedCount === 0}
+                              onClick={handleCreateSelected}
+                            >
+                              {`Create ${selectedCount} task${selectedCount === 1 ? '' : 's'}`}
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </Card>
               </li>
             )
