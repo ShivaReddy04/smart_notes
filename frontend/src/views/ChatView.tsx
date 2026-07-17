@@ -87,7 +87,7 @@ function ChatView() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [exchanges, pending])
 
-  function useExample(example: string) {
+  function fillExample(example: string) {
     setQuestion(example)
     inputRef.current?.focus()
   }
@@ -137,7 +137,7 @@ function ChatView() {
                 <button
                   key={example}
                   type="button"
-                  onClick={() => useExample(example)}
+                  onClick={() => fillExample(example)}
                   className="rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:border-accent-300 hover:bg-accent-50 hover:text-accent-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-accent-500/50 dark:hover:bg-accent-500/10 dark:hover:text-accent-300"
                 >
                   {example}
